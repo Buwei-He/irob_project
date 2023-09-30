@@ -37,6 +37,7 @@ class StateMachine(object):
         
         self.node_name = "Student SM"
         self.aruco_pose = None
+        self.robot_pose = None
         self.prev_state = 2
         self.state = 2
 
@@ -223,22 +224,23 @@ class StateMachine(object):
 
             # State 4:  Detect aruco cube
             if self.state == 4:
-                try:
-                    rospy.loginfo("%s: Lowering robot head", self.node_name)
-                    move_head_srv = rospy.ServiceProxy(self.move_head_service_ns, MoveHead)
-                    move_head_req = move_head_srv("down")
-                    self.prev_state = self.state
-                    if move_head_req.success:
-                        self.state = 5
-                        rospy.loginfo("%s: Move head down succeded!", self.node_name)
-                    else:
-                        self.state = -1
-                        rospy.loginfo("%s: Move head down failed!", self.node_name)
-                        
-                    rospy.sleep(3)
 
-                except rospy.ServiceException as e:
-                    print("Service call to move_head server failed: %s"%e)
+                move_msg = Twist()
+                move_msg.angular.z = 0.8
+
+                rate = rospy.Rate(10)
+                cnt = 0
+                self.aruco_pose_rcv = False
+                rospy.loginfo("%s: Checking if cube is in sight...", self.node_name)
+                while not rospy.is_shutdown() and self.aruco_pose_rcv == False and cnt < 100:
+                    self.cmd_vel_pub.publish(move_msg)
+                    cnt += 1
+                    rate.sleep()
+
+                self.previous_state = self.state
+                self.state = 4
+                rospy.sleep(3)
+
 
             # State 5:  Pick up service
             if self.state == 5:
