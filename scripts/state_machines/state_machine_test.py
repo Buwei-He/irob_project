@@ -36,10 +36,10 @@ class StateMachine(object):
     def __init__(self):
         
         self.node_name = "Student SM"
-        self.aruco_pose = None
+        self.aruco_pose_received = False
         self.robot_pose = None
-        self.prev_state = 2
-        self.state = 2
+        self.prev_state = 1
+        self.state = 1
 
         # Access rosparams
         # see launch_project.launch for details, and replace "placeholders" and blanks.
@@ -79,7 +79,7 @@ class StateMachine(object):
         )
 
         # Subscribe to topics
-        self.robot_pose_subs = rospy.Subscriber("/amcl_pose", PoseWithCovarianceStamped, self.robot_pose_callback)
+        self.robot_pose_subs = rospy.Subscriber(self.global_loc_service_ns, PoseWithCovarianceStamped, self.robot_pose_callback)
         self.aruco_pose_subs = rospy.Subscriber(self.aruco_pose_topic_ns, PoseStamped, self.aruco_pose_callback)
 
         # Wait for service providers
@@ -115,7 +115,7 @@ class StateMachine(object):
         """ Update aruco pose. """
         valid = aruco_pose_msg is not None
         if valid:
-            self.aruco_pose = aruco_pose_msg
+            self.aruco_pose_received = True
         return valid
 
 
@@ -222,23 +222,30 @@ class StateMachine(object):
                 except rospy.ServiceException as e:
                     print("Service call to move_head server failed: %s"%e)
 
-            # State 4:  Detect aruco cube
+            # State 4:  Detect aruco cube & update cost map
             if self.state == 4:
 
                 move_msg = Twist()
-                move_msg.angular.z = 0.8
+                move_msg.angular.z = 0.0
 
                 rate = rospy.Rate(10)
                 cnt = 0
-                self.aruco_pose_rcv = False
                 rospy.loginfo("%s: Checking if cube is in sight...", self.node_name)
-                while not rospy.is_shutdown() and self.aruco_pose_rcv == False and cnt < 100:
+
+                # re-initialize and detect aruco pose
+                self.aruco_pose_received = False
+                while not rospy.is_shutdown() and not self.aruco_pose_received and cnt < 80:
                     self.cmd_vel_pub.publish(move_msg)
                     cnt += 1
                     rate.sleep()
+                rospy.loginfo(str(cnt))
+
+                # update costmap
+                clear_costmap_service = rospy.ServiceProxy(self.clear_costmaps_service_ns, Empty)
+                clear_costmap_req = clear_costmap_service()
 
                 self.previous_state = self.state
-                self.state = 4
+                self.state = 5
                 rospy.sleep(3)
 
 
@@ -251,10 +258,10 @@ class StateMachine(object):
                     self.prev_state = self.state
 
                     if pick_req.success:
-                        self.state = 6
+                        self.state = 5
                         rospy.loginfo("%s: Pick up succeded!", self.node_name)
                     else:
-                        self.state = -1
+                        self.state = 5
                         rospy.loginfo("%s: Pick up failed!", self.node_name)
 
                     rospy.sleep(3)
