@@ -6,3 +6,15 @@ src/
 srv/
 package.xml
 setup.py
+CMakeLists.txt
+**.swp
+**.pyc
+**.json
+launch/gazebo_project.launch
+launch/launch_robot.launch
+scripts/utils/poses_pub.py
+.gitignore
+scripts/utils/manipulation_server.py
+scripts/utils/manipulation_client.py
+scripts/utils/grasps_server.py
+scripts/utils/gazebo_models_hdl.py
