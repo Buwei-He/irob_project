@@ -1,0 +1,14 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/joecurry/catkin_ws_a5/devel/lib/python3/dist-packages",
+        "/home/joecurry/catkin_ws/devel/lib/python3/dist-packages",
+        "/opt/ros/noetic/lib/python3/dist-packages",
+        "/home/joecurry/raisim/raisim/linux/lib/"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/joecurry/catkin_ws_a5/devel/lib/python3/dist-packages",
+        "/home/joecurry/catkin_ws/devel/lib/python3/dist-packages",
+        "/opt/ros/noetic/lib/python3/dist-packages",
+        "/home/joecurry/raisim/raisim/linux/lib/"
+    ]
+}
