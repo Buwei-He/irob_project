@@ -129,10 +129,17 @@ class StateMachine(object):
 
     def localization(self):
         # class type unknown
-        localization_service = rospy.ServiceProxy(self.global_loc_service_ns, Empty)
-        localization_status = localization_service()
+        try:
+            localization_service = rospy.ServiceProxy(self.global_loc_service_ns, Empty)
+            localization_req = localization_service()
+            # success = True
 
-        return 0
+            return localization_req.success
+            # return success
+        
+        except rospy.ServiceException as e:
+            rospy.loginfo("Service call to localization server failed: %s" % e)
+            return False
 
 
     def navigate_to_pose(self, target_pose):
@@ -145,65 +152,127 @@ class StateMachine(object):
         if success:
             rospy.loginfo("%s: Target pose reached.", self.node_name)
         else:
-            self.move_base_ac.cancel_goal()
             rospy.logerr("%s: Failed to reach the target, please retry or handle it.", self.node_name)
+            self.move_base_ac.cancel_goal()
+
         return success
+    
+
+    def move_base_motion(self, move_msg, time):
+
+        rate_per_sec = 10
+        rate = rospy.Rate(rate_per_sec)
+        cnt = 0
+        rospy.loginfo("%s: Moving the base...", self.node_name)
+
+        while not rospy.is_shutdown() and cnt < int(time * rate_per_sec):
+            self.cmd_vel_pub.publish(move_msg)
+            rate.sleep()
+            cnt += 1
+        
+        success = (cnt > int(time * rate_per_sec) - 2)
+        if success:
+            rospy.loginfo("%s: Arm tuck: ", self.play_motion_ac.get_result())
+        else:
+            rospy.logerr("%s: Tuck arm failed, reset simulation.", self.node_name)
+            self.play_motion_ac.cancel_goal()
+
+        return success
+
+
+    def update_costmap(self):
+        try:
+            clear_costmap_service = rospy.ServiceProxy(self.clear_costmaps_service_ns, Empty)
+            clear_costmap_req = clear_costmap_service()
+            success = True
+
+            # return clear_costmap_req.success
+            return success
+        
+        except rospy.ServiceException as e:
+            rospy.loginfo("Service call to clear_costmap server failed: %s" % e)
+            return False
+
+
+    def tuck_arm_motion(self):
+        rospy.loginfo("%s: Tucking the arm...", self.node_name)
+        goal = PlayMotionGoal()
+        goal.motion_name = 'home'
+        goal.skip_planning = True
+        self.play_motion_ac.send_goal(goal)
+        success = self.play_motion_ac.wait_for_result(rospy.Duration(100.0))
+
+        if success:
+            rospy.loginfo("%s: Tuck arm succeeded!", self.play_motion_ac.get_result())
+            
+        else:
+            rospy.loginfo("%s: Tuck arm failed!", self.node_name)
+            self.play_motion_ac.cancel_goal()
+
+        return success
+    
+
+    def move_head_motion(self, direction="down"):
+        try:
+            rospy.loginfo("%s: Moving robot head", self.node_name)
+            move_head_srv = rospy.ServiceProxy(self.move_head_service_ns, MoveHead)
+            move_head_req = move_head_srv(direction)
+            success = move_head_req.success
+
+            if success:
+                rospy.loginfo("%s: Move head down succeeded!", self.node_name)
+            else:
+                rospy.loginfo("%s: Move head down failed!", self.node_name)
+                
+            return success
+
+        except rospy.ServiceException as e:
+            rospy.loginfo("Service call to move_head server failed: %s" % e)
+            return False
     
 
     def check_states(self):
 
         while not rospy.is_shutdown():
-            
-            # State 0: Localize
-            if self.state == 0:
-                move_msg = Twist()
-                move_msg.angular.z = 1.0
 
-                rate = rospy.Rate(10)
-                cnt = 0
-                rospy.loginfo("%s: Localize...", self.node_name)
-                while not rospy.is_shutdown() and cnt < 60:
-                    self.cmd_vel_pub.publish(move_msg)
-                    rate.sleep()
-                    cnt += 1
+            # State 0:  Tuck arm 
+            if self.state == 0:
+                self.prev_state = self.state
+
+                move_msg = Twist()
+                move_msg.linear.x = -0.5
+                self.move_base_motion(move_msg, time=1)
+
+                # tuuck arm
+                success = self.tuck_arm_motion()
+                
+                # next state
+                self.state = 1 if success else -1
+                rospy.sleep(1)
+
+            # State 1: Localize
+            if self.state == 1:
+                self.prev_state = self.state
+
+                move_msg = Twist()
+                move_msg.angular.z = 1
+                success = self.move_base_motion(move_msg, time=5.8)
 
                 # update costmap
-                clear_costmap_service = rospy.ServiceProxy(self.clear_costmaps_service_ns, Empty)
-                clear_costmap_req = clear_costmap_service()
+                self.update_costmap()
 
                 # next state
-                self.state = 1
+                self.state = 2 if success else -1
                 rospy.sleep(1)
 
-            # State 1:  Tuck arm 
-            if self.state == 1:
-                rospy.loginfo("%s: Tucking the arm...", self.node_name)
-                goal = PlayMotionGoal()
-                goal.motion_name = 'home'
-                goal.skip_planning = True
-                self.play_motion_ac.send_goal(goal)
-                success = self.play_motion_ac.wait_for_result(rospy.Duration(100.0))
-                self.prev_state = self.state
-
-                if success:
-                    self.state = 2
-                    rospy.loginfo("%s: Arm tuck: ", self.play_motion_ac.get_result())
-                    
-                else:
-                    self.play_motion_ac.cancel_goal()
-                    self.state = -1
-                    rospy.logerr("%s: Tuck arm failed, reset simulation.", self.node_name)
-
-                rospy.sleep(1)
-
-            # State 2:  Navigate
+            # State 2:  Navigate to pick pose
             if self.state == 2:
-                rospy.loginfo("%s: Navigating to cube...", self.node_name)
+                self.prev_state = self.state
                 target_pose = rospy.wait_for_message(self.pick_pose_topic_ns, PoseStamped, 5)
                 success = self.navigate_to_pose(target_pose)
-                self.prev_state = self.state
+                
+                # next state
                 self.state = 3 if success else -1
-
                 rospy.sleep(1)
 
             # State 3:  Lower robot head service
@@ -224,12 +293,13 @@ class StateMachine(object):
 
                 except rospy.ServiceException as e:
                     print("Service call to move_head server failed: %s"%e)
+                    
 
             # State 4:  Detect aruco cube & update cost map
             if self.state == 4:
 
                 move_msg = Twist()
-                move_msg.angular.z = 0.0
+                move_msg.angular.z = 0.25
 
                 rate = rospy.Rate(10)
                 cnt = 0
@@ -237,12 +307,11 @@ class StateMachine(object):
 
                 # re-initialize and detect aruco pose
                 self.aruco_pose_received = False
-                while not rospy.is_shutdown() and not self.aruco_pose_received and cnt < 80:
+                while not rospy.is_shutdown() and not self.aruco_pose_received and cnt < 300:
                     self.cmd_vel_pub.publish(move_msg)
                     cnt += 1
                     rate.sleep()
                 rospy.loginfo(str(cnt))
-
 
                 self.previous_state = self.state
                 self.state = 5
@@ -258,10 +327,10 @@ class StateMachine(object):
                     self.prev_state = self.state
 
                     if pick_req.success:
-                        self.state = 5
-                        rospy.loginfo("%s: Pick up succeded!", self.node_name)
+                        self.state = 6
+                        rospy.loginfo("%s: Pick up succeeded!", self.node_name)
                     else:
-                        self.state = 4
+                        self.state = 2
                         rospy.loginfo("%s: Pick up failed!", self.node_name)
 
                     rospy.sleep(3)
@@ -269,19 +338,33 @@ class StateMachine(object):
                 except rospy.ServiceException as e:
                     print("Service call to move_head server failed: %s"%e)
 
-            # State 6:  Place service
+
+            # State 6:  Navigate to pick pose
             if self.state == 6:
+                self.prev_state = self.state
+                target_pose = rospy.wait_for_message(self.place_pose_topic_ns, PoseStamped, 5)
+                success = self.navigate_to_pose(target_pose)
+                
+                # next state
+                self.state = 7 if success else -1
+                rospy.sleep(1)
+
+
+            # State 7:  Place service
+            if self.state == 7:
                 try:
+                    self.update_costmap()
+
                     rospy.loginfo("%s: Place object", self.node_name)
                     place_service = rospy.ServiceProxy(self.place_service_ns, SetBool)
                     place_req = place_service()
                     self.prev_state = self.state
 
                     if place_req.success:
-                        self.state = 7
-                        rospy.loginfo("%s: Place succeded!", self.node_name)
+                        self.state = 8
+                        rospy.loginfo("%s: Place succeeded!", self.node_name)
                     else:
-                        self.state = -1
+                        self.state = 7
                         rospy.loginfo("%s: Place failed!", self.node_name)
 
                     rospy.sleep(3)

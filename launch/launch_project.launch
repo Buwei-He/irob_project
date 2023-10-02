@@ -34,6 +34,7 @@
 
   <!-- Custom -->
   <arg name="global_loc_srv"      default="/amcl_pose"/>
+  <!-- <arg name="global_loc_srv"      default="/global_localization"/> -->
   <arg name="clear_costmaps_srv"  default="/clear_octomap"/>
   <arg name="pick_srv"            default="/$(arg namespace_project)/pick_service"/>
   <arg name="place_srv"           default="/$(arg namespace_project)/place_service"/>
@@ -42,7 +43,8 @@
   <arg name="place_pose_topic"    default="/$(arg namespace_project)/place_pose_topic"/>
   <arg name="pickup_marker_pose"  default="/$(arg namespace_project)/pickup_marker_pose"/>
   <arg name="place_marker_pose"   default="/$(arg namespace_project)/place_marker_pose"/>
-  <arg name="aruco_pose_topic"   default="/$(arg namespace_project)/aruco_single/pose"/>
+  <arg name="aruco_pose_topic"    default="/$(arg namespace_project)/aruco_single/pose"/>
+  <arg name="move_base_frame"     default="base_footprint"/>
   <arg name="map_frame"           default="map"/>
 
   <!-- Definitions of pregrasp motion -->
@@ -63,7 +65,7 @@
     </node> -->
 
     <!-- Project RGBD point cloud to laser-scan -->
-    <!-- <node pkg="depthimage_to_laserscan" type="depthimage_to_laserscan" name="depthimage_to_laserscan">
+    <node pkg="depthimage_to_laserscan" type="depthimage_to_laserscan" name="depthimage_to_laserscan">
       <remap from="image" to="xtion/depth_registered/image_raw"/>
       <remap from="scan"  to="rgbd_scan"/>
       <param name="scan_height" value="400"/>
@@ -71,7 +73,7 @@
       <param name="range_min" value="0.15"/>
       <param name="range_max" value="10.0"/>
       <param name="output_frame_id" value="base_footprint"/>
-    </node> -->
+    </node>
 
     <!-- AMCL Localization -->
     <include file="$(find tiago_2dnav)/launch/localization.launch">
@@ -100,12 +102,12 @@
       <param name="place_srv"           value="$(arg place_srv)"/>
       <param name="nav_goal_topic"      value=""/>
       <param name="cmd_vel_topic"       value="/key_vel"/>
-      <param name="move_base_frame"     value=""/>
+      <param name="move_base_frame"     value="$(arg move_base_frame)"/>
       <param name="pick_pose_topic"     value="$(arg pick_pose_topic)"/>
       <param name="place_pose_topic"    value="$(arg place_pose_topic)"/>
       <param name="aruco_pose_topic"    value="$(arg aruco_pose_topic)"/>
       <param name="cube_pose"           value="0.50306828716, 0.0245718046511, 0.915538062216, 0.0144467629456, 0.706141958739, 0.707257659069, -0.0306827123383"/>
-      <param name="robot_base_frame"    value="" />
+      <param name="robot_base_frame"    value="$(arg move_base_frame)" />
       <param name="move_head_srv"       value="$(arg move_head_srv)"/>
       <param name="amcl_estimate"       value="" />
       <param name="move_base_feedback"  value="" />
@@ -136,11 +138,12 @@
         <remap from="/image"              to="/xtion/rgb/image_rect_color" />
         <remap from="/pose"               to="$(arg aruco_pose_topic)" />
         <param name="image_is_rectified"  value="true"/>
-        <param name="marker_size"         value="0.034"/>
+        <!-- marker size is important params to determine distance -->
+        <param name="marker_size"         value="0.05"/>
         <param name="marker_id"           value="582"/>
         <param name="reference_frame"     value="xtion_rgb_optical_frame"/>
         <param name="camera_frame"        value="xtion_rgb_optical_frame"/>
-        <param name="marker_frame"        value="aruco_marker_frame" />
+        <param name="marker_frame"        value="aruco_frame" />
     </node>
   </group>
 
