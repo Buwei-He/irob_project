@@ -47,7 +47,7 @@ min_degrees_pitch: 180
 max_degrees_pitch: 300
 
 # The steps are the main thing to tune
-step_degrees_pitch: 30
-step_degrees_yaw: 30
+step_degrees_pitch: 15
+step_degrees_yaw: 15
 
 links_to_allow_contact: ["gripper_left_finger_link", "gripper_right_finger_link", "gripper_link"]
