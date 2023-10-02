@@ -38,8 +38,8 @@ class StateMachine(object):
         self.node_name = "Student SM"
         self.aruco_pose_received = False
         self.robot_pose = None
-        self.prev_state = 1
-        self.state = 1
+        self.prev_state = 0
+        self.state = 0
 
         # Access rosparams
         # see launch_project.launch for details, and replace "placeholders" and blanks.
@@ -157,16 +157,19 @@ class StateMachine(object):
             # State 0: Localize
             if self.state == 0:
                 move_msg = Twist()
-                move_msg.linear.x = 1
+                move_msg.angular.z = 1.0
 
                 rate = rospy.Rate(10)
-                converged = False
                 cnt = 0
-                rospy.loginfo("%s: Moving towards door", self.node_name)
-                while not rospy.is_shutdown() and cnt < 5:
+                rospy.loginfo("%s: Localize...", self.node_name)
+                while not rospy.is_shutdown() and cnt < 60:
                     self.cmd_vel_pub.publish(move_msg)
                     rate.sleep()
-                    cnt = cnt + 1
+                    cnt += 1
+
+                # update costmap
+                clear_costmap_service = rospy.ServiceProxy(self.clear_costmaps_service_ns, Empty)
+                clear_costmap_req = clear_costmap_service()
 
                 # next state
                 self.state = 1
@@ -240,9 +243,6 @@ class StateMachine(object):
                     rate.sleep()
                 rospy.loginfo(str(cnt))
 
-                # update costmap
-                clear_costmap_service = rospy.ServiceProxy(self.clear_costmaps_service_ns, Empty)
-                clear_costmap_req = clear_costmap_service()
 
                 self.previous_state = self.state
                 self.state = 5
@@ -261,7 +261,7 @@ class StateMachine(object):
                         self.state = 5
                         rospy.loginfo("%s: Pick up succeded!", self.node_name)
                     else:
-                        self.state = 5
+                        self.state = 4
                         rospy.loginfo("%s: Pick up failed!", self.node_name)
 
                     rospy.sleep(3)

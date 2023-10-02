@@ -204,6 +204,7 @@ class ManipulateAruco(object):
 				and str(moveit_error_dict[result.error_code]) != "MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE"
 				and str(moveit_error_dict[result.error_code]) != "CONTROL_FAILED"):
 				rospy.logerr("Failed to pick, not trying further")
+				rospy.loginfo(moveit_error_dict[result.error_code])
 				success = False
 			else: 
 				success = True
