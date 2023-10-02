@@ -129,11 +129,17 @@ class StateMachine(object):
 
     def localization(self):
         # class type unknown
-        localization_service = rospy.ServiceProxy(self.global_loc_service_ns, Empty)
-        localization_status = localization_service()
-        success = True
+        try:
+            localization_service = rospy.ServiceProxy(self.global_loc_service_ns, Empty)
+            localization_req = localization_service()
+            # success = True
 
-        return success
+            return localization_req.success
+            # return success
+        
+        except rospy.ServiceException as e:
+            rospy.loginfo("Service call to localization server failed: %s" % e)
+            return False
 
 
     def navigate_to_pose(self, target_pose):
@@ -155,7 +161,7 @@ class StateMachine(object):
     def move_base_motion(self, move_msg, time):
 
         rate_per_sec = 10
-        rate = rospy.Rate(10)
+        rate = rospy.Rate(rate_per_sec)
         cnt = 0
         rospy.loginfo("%s: Moving the base...", self.node_name)
 
@@ -175,11 +181,17 @@ class StateMachine(object):
 
 
     def update_costmap(self):
-        clear_costmap_service = rospy.ServiceProxy(self.clear_costmaps_service_ns, Empty)
-        clear_costmap_req = clear_costmap_service()
-        success = True
+        try:
+            clear_costmap_service = rospy.ServiceProxy(self.clear_costmaps_service_ns, Empty)
+            clear_costmap_req = clear_costmap_service()
+            success = True
 
-        return success
+            # return clear_costmap_req.success
+            return success
+        
+        except rospy.ServiceException as e:
+            rospy.loginfo("Service call to clear_costmap server failed: %s" % e)
+            return False
 
 
     def tuck_arm_motion(self):
@@ -191,13 +203,32 @@ class StateMachine(object):
         success = self.play_motion_ac.wait_for_result(rospy.Duration(100.0))
 
         if success:
-            rospy.loginfo("%s: Arm tuck: ", self.play_motion_ac.get_result())
+            rospy.loginfo("%s: Tuck arm succeeded!", self.play_motion_ac.get_result())
             
         else:
-            rospy.logerr("%s: Tuck arm failed, reset simulation.", self.node_name)
+            rospy.loginfo("%s: Tuck arm failed!", self.node_name)
             self.play_motion_ac.cancel_goal()
 
         return success
+    
+
+    def move_head_motion(self, direction="down"):
+        try:
+            rospy.loginfo("%s: Moving robot head", self.node_name)
+            move_head_srv = rospy.ServiceProxy(self.move_head_service_ns, MoveHead)
+            move_head_req = move_head_srv(direction)
+            success = move_head_req.success
+
+            if success:
+                rospy.loginfo("%s: Move head down succeeded!", self.node_name)
+            else:
+                rospy.loginfo("%s: Move head down failed!", self.node_name)
+                
+            return success
+
+        except rospy.ServiceException as e:
+            rospy.loginfo("Service call to move_head server failed: %s" % e)
+            return False
     
 
     def check_states(self):
@@ -262,6 +293,7 @@ class StateMachine(object):
 
                 except rospy.ServiceException as e:
                     print("Service call to move_head server failed: %s"%e)
+                    
 
             # State 4:  Detect aruco cube & update cost map
             if self.state == 4:
