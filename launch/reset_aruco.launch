@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+  <node pkg="robotics_project" type="reset_aruco.py" name="reset_aruco" output="screen" />
+</launch>

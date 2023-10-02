@@ -8,11 +8,11 @@
 
   <!-- System level -->
   <arg name="namespace_tiago"     default="/"/>
-  <arg name="namespace_project"   default="robotics_intro"/>
+  <arg name="namespace_project"   default="irob_final"/>
   <arg name="public_sim"          default="True"/>
   <arg name="sim_sufix"           value="_public_sim" if="$(arg public_sim)"/>
   <arg name="sim_sufix"           value=""  unless="$(arg public_sim)"/>
-  <arg name="robot_namespace"     default=""/>
+  <arg name="robot_namespace"     default="robot"/>
   <env name="PAL_HOST"            value="tiago" />
   <env name="LC_NUMERIC"          value="C" />
 
@@ -34,13 +34,14 @@
 
   <!-- Custom -->
   <arg name="global_loc_srv"      default="/amcl_pose"/>
-  <!-- <arg name="global_loc_srv"      default="/global_localization"/> -->
   <arg name="clear_costmaps_srv"  default="/clear_octomap"/>
   <arg name="pick_srv"            default="/$(arg namespace_project)/pick_service"/>
   <arg name="place_srv"           default="/$(arg namespace_project)/place_service"/>
   <arg name="move_head_srv"       default="/$(arg namespace_project)/move_head_gui"/>
+  <arg name="reset_aruco_srv"     default="/gazebo/set_model_state"/>
   <arg name="pick_pose_topic"     default="/$(arg namespace_project)/pick_pose_topic"/>
   <arg name="place_pose_topic"    default="/$(arg namespace_project)/place_pose_topic"/>
+  <arg name="joint_states_topic"  default="/joint_states"/>
   <arg name="pickup_marker_pose"  default="/$(arg namespace_project)/pickup_marker_pose"/>
   <arg name="place_marker_pose"   default="/$(arg namespace_project)/place_marker_pose"/>
   <arg name="aruco_pose_topic"    default="/$(arg namespace_project)/aruco_single/pose"/>
@@ -100,12 +101,14 @@
       <param name="clear_costmaps_srv"  value="$(arg clear_costmaps_srv)"/>
       <param name="pick_srv"            value="$(arg pick_srv)"/>
       <param name="place_srv"           value="$(arg place_srv)"/>
+      <param name="reset_aruco_srv"     value="$(arg reset_aruco_srv)"/>
       <param name="nav_goal_topic"      value=""/>
       <param name="cmd_vel_topic"       value="/key_vel"/>
       <param name="move_base_frame"     value="$(arg move_base_frame)"/>
       <param name="pick_pose_topic"     value="$(arg pick_pose_topic)"/>
       <param name="place_pose_topic"    value="$(arg place_pose_topic)"/>
       <param name="aruco_pose_topic"    value="$(arg aruco_pose_topic)"/>
+      <param name="joint_states_topic"  value="$(arg joint_states_topic)"/>
       <param name="cube_pose"           value="0.50306828716, 0.0245718046511, 0.915538062216, 0.0144467629456, 0.706141958739, 0.707257659069, -0.0306827123383"/>
       <param name="robot_base_frame"    value="$(arg move_base_frame)" />
       <param name="move_head_srv"       value="$(arg move_head_srv)"/>
