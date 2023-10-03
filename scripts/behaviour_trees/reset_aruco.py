@@ -39,7 +39,7 @@ def reset_aruco():
 	except rospy.ServiceException as e:
 		print("Service call to gazebo delete_models failed: %s"%e)
 
-	rate = rospy.Rate(0.4).sleep()
+	rate = rospy.Rate(0.2).sleep()
 
 	rospy.loginfo("Respawn aruco model...")
 	spawn_model_prox = rospy.ServiceProxy(spawn_model_srv, SpawnModel)

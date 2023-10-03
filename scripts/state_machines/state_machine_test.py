@@ -2,7 +2,7 @@
 
 import numpy as np
 from numpy import linalg as LA
-from utils.reset_aruco import reset_aruco
+from reset_aruco import reset_aruco
 
 import rospy
 from geometry_msgs.msg import Pose, Twist

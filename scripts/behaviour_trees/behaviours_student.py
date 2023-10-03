@@ -6,13 +6,13 @@
 import py_trees as pt, py_trees_ros as ptr, rospy
 from geometry_msgs.msg import Twist, Pose, PoseStamped
 from std_srvs.srv import Empty, SetBool, SetBoolRequest  
-from actionlib import SimpleActionClient
+from actionlib import SimpleActionClient, SimpleGoalState
 from play_motion_msgs.msg import PlayMotionAction, PlayMotionGoal
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from sensor_msgs.msg import JointState
 from robotics_project.srv import MoveHead, MoveHeadRequest, MoveHeadResponse
 
-from utils.reset_aruco import reset_aruco
+from reset_aruco import reset_aruco
 
 
 class counter(pt.behaviour.Behaviour):
@@ -71,7 +71,6 @@ class go(pt.behaviour.Behaviour):
         rate = rospy.Rate(10)
         self.cmd_vel_pub.publish(self.move_msg)
         rate.sleep()
-
         # tell the tree that you're running
         return pt.common.Status.RUNNING
 
@@ -90,7 +89,7 @@ class goto(pt.behaviour.Behaviour):
         self.name = "Goto pickup pose!" if target_pose == "pick" else "Goto place pose!"
 
         # setup action client
-        target_pose_topic = rospy.get_param('%s/%s_pose_topic', rospy.get_name(), target_pose)
+        target_pose_topic = rospy.get_param('%s/%s_pose_topic' % (rospy.get_name(), target_pose))
         target_pose = rospy.wait_for_message(target_pose_topic, PoseStamped, 5)
 
         self.move_base_ac = SimpleActionClient("/move_base", MoveBaseAction)
@@ -116,7 +115,7 @@ class goto(pt.behaviour.Behaviour):
         self.finished = False
 
         # become a behaviour
-        super(go, self).__init__(self.name)
+        super(goto, self).__init__(self.name)
 
 
     def joint_states_callback(self, joint_states_msg):
@@ -150,7 +149,6 @@ class goto(pt.behaviour.Behaviour):
 
         # Already finished?
         if self.finished: 
-            rospy.loginfo("Goto target pose: Finished!")
             return pt.common.Status.SUCCESS
         
         # Command to do something if haven't already...
@@ -172,11 +170,10 @@ class goto(pt.behaviour.Behaviour):
             return pt.common.Status.SUCCESS
 
         # if failed
-        elif not self.move_base_ac.get_result():
+        elif not self.move_base_ac.get_result() and self.move_base_ac.get_state() == SimpleGoalState.DONE:
             rospy.loginfo("Goto target pose: Failed!")
             self.move_base_ac.cancel_goal()
             self.sent_goal = False
-            reset_aruco()
             return pt.common.Status.FAILURE
         
         # if dropped
@@ -184,6 +181,7 @@ class goto(pt.behaviour.Behaviour):
             rospy.loginfo("Hej, aruco cube is missing!")
             self.move_base_ac.cancel_goal()
             self.sent_goal = False
+            reset_aruco()
             return pt.common.Status.FAILURE
 
         # if I'm still trying :|
@@ -324,7 +322,7 @@ class movearm(pt.behaviour.Behaviour):
         rospy.loginfo("Initialising move head behaviour.")
 
         # server
-        move_arm_service_ns = rospy.get_param('%s/%s_srv', rospy.get_name(), direction)
+        move_arm_service_ns = rospy.get_param('%s/%s_srv' % (rospy.get_name(), direction))
         self.move_arm_service = rospy.ServiceProxy(move_arm_service_ns, SetBool)
         rospy.wait_for_service(move_arm_service_ns, timeout=30)
 
@@ -336,7 +334,7 @@ class movearm(pt.behaviour.Behaviour):
         self.done = False
 
         # become a behaviour
-        super(movehead, self).__init__(self.name)
+        super(movearm, self).__init__(self.name)
 
 
     def update(self):
@@ -392,7 +390,7 @@ class clearcost(pt.behaviour.Behaviour):
         self.done = False
 
         # become a behaviour
-        super(movehead, self).__init__(self.name)
+        super(clearcost, self).__init__(self.name)
 
 
     def update(self):
@@ -417,7 +415,7 @@ class clearcost(pt.behaviour.Behaviour):
             return pt.common.Status.RUNNING
 
 
-class detectaruco(pt.behaviour.Behaviour):
+class lookforaruco(pt.behaviour.Behaviour):
 
     """
     Clear both local and global cost map.
@@ -425,7 +423,7 @@ class detectaruco(pt.behaviour.Behaviour):
     success if the action was successful, and v.v..
     """
 
-    def __init__(self):
+    def __init__(self, angular):
 
         self.name = "Detect aruco cube!"
         rospy.loginfo("Initialising detect aruco behaviour.")
@@ -436,7 +434,7 @@ class detectaruco(pt.behaviour.Behaviour):
 
         # command
         self.move_msg = Twist()
-        self.move_msg.angular.z = 0.25
+        self.move_msg.angular.z = angular
 
         # subscribe to vision-based detector
         self.aruco_pose_topic_ns = rospy.get_param(rospy.get_name() + '/aruco_pose_topic')
@@ -448,7 +446,7 @@ class detectaruco(pt.behaviour.Behaviour):
         self.aruco_detected = False
 
         # become a behaviour
-        super(movehead, self).__init__(self.name)
+        super(lookforaruco, self).__init__(self.name)
 
 
     def aruco_pose_callback(self, aruco_pose_msg):
@@ -461,10 +459,6 @@ class detectaruco(pt.behaviour.Behaviour):
 
     def update(self):
 
-        # success if done
-        if self.done:
-            return pt.common.Status.SUCCESS
-
         # spin if aruco is not detected
         if not self.aruco_detected:
 
@@ -473,12 +467,9 @@ class detectaruco(pt.behaviour.Behaviour):
             self.cmd_vel_pub.publish(self.move_msg)
             rate.sleep()
 
-            # tell the tree that you're running
-            return pt.common.Status.RUNNING
+        # tell the tree that you're running
+        return pt.common.Status.RUNNING
 
-        # if still trying
-        else:
-            return pt.common.Status.RUNNING
 
 
 

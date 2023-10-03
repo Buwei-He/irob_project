@@ -13,7 +13,7 @@ class BehaviourTree(ptr.trees.BehaviourTree):
 		# go to door until at door
 		b0 = pt.composites.Selector(
 			name="Go back fallback", 
-			children=[counter(20, "Done?"), go("Go back!", linear=-0.2, angular=0)]
+			children=[counter(20, "Go back done?"), go("Go back!", linear=-0.2, angular=0)]
 		)
 
 		# tuck the arm
@@ -22,24 +22,28 @@ class BehaviourTree(ptr.trees.BehaviourTree):
 		# go to table
 		b2 = pt.composites.Selector(
 			name="Spin to localize fallback",
-			children=[counter(58, "Done?"), go("Spin to localize!", linear=0, angular=-1)]
+			children=[counter(58, "Spin to localize done?"), go("Spin to localize!", linear=0, angular=-1)]
 		)
 
 		# move to chair
-		b3 = goto("pick")
+		b3 = goto("pick", with_aruco=False)
 
 		# lower head
 		b4 = movehead("down")
 
-		b5 = detectaruco()
+		b5 = pt.composites.Selector(
+			name="Looking for aruco cube fallback",
+			children=[counter(100, "Aruco cube detected?"), lookforaruco(angular=-0.58)]
+		)
 
 		b6 = movearm("pick")
 
-		b7 = goto("place")
+		b7 = goto("place", with_aruco=True)
 
 		b8 = movearm("place")
 
 		# become the tree
+		rospy.loginfo("Behaviour tree...")
 		tree = RSequence(name="Main sequence", children=[b0, b1, b2, b3, b4, b5, b6, b7, b8])
 		super(BehaviourTree, self).__init__(tree)
 
