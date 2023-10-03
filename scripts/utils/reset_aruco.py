@@ -9,8 +9,7 @@ import signal
 import sys
 
 def reset_aruco():
-	node_name = "Student SM"
-	rospy.loginfo("%s: Reset aruco cube...", node_name)
+	rospy.loginfo("Reset aruco cube...")
 	aruco_cube_path = rospy.get_param("/gazebo_models_handler/aruco_cube_sdf")
 	dlt_model_srv = "/gazebo/delete_model"
 	spawn_model_srv = "/gazebo/spawn_sdf_model"
@@ -20,7 +19,7 @@ def reset_aruco():
 	rospy.wait_for_service(spawn_model_srv, timeout=30)
 	delete_model_srv = rospy.ServiceProxy(dlt_model_srv, DeleteModel)
 
-	rospy.loginfo("%s: Services received!", node_name)
+	rospy.loginfo("Services received!")
 
 	# Initial pose of the cube
 	initial_pose = Pose()
@@ -30,9 +29,9 @@ def reset_aruco():
 
 	f = open(aruco_cube_path, 'r')
 	sdffile = f.read()
-	rospy.loginfo("%s: Path: %s", node_name, aruco_cube_path)
+	rospy.loginfo("Path: %s", aruco_cube_path)
 
-	rospy.loginfo("%s: Calling gazebo delete_models", node_name)
+	rospy.loginfo("Calling gazebo delete_models")
 	try:
 		delete_cube = DeleteModelRequest('aruco_cube')
 		delete_model_res = delete_model_srv(delete_cube)
@@ -40,11 +39,9 @@ def reset_aruco():
 	except rospy.ServiceException as e:
 		print("Service call to gazebo delete_models failed: %s"%e)
 
-	rate = rospy.Rate(0.2)
-    
-	rate.sleep()
+	rate = rospy.Rate(0.4).sleep()
 
-	rospy.loginfo("%s: Respawn aruco model...", node_name)
+	rospy.loginfo("Respawn aruco model...")
 	spawn_model_prox = rospy.ServiceProxy(spawn_model_srv, SpawnModel)
 	spawn_model_prox("aruco_cube", sdffile, "/", initial_pose, "world")
 	

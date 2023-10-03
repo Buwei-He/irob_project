@@ -2,6 +2,7 @@
 
 import numpy as np
 from numpy import linalg as LA
+from utils.reset_aruco import reset_aruco
 
 import rospy
 from geometry_msgs.msg import Pose, Twist
@@ -11,7 +12,7 @@ from robotics_project.srv import MoveHead, MoveHeadRequest, MoveHeadResponse
 from play_motion_msgs.msg import PlayMotionAction, PlayMotionGoal
 from sensor_msgs.msg import JointState
 
-from actionlib import SimpleActionClient
+from actionlib import SimpleActionClient, SimpleGoalState
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from nav_msgs.msg import Odometry
 
@@ -173,7 +174,7 @@ class StateMachine(object):
             goal.target_pose = target_pose
             self.move_base_ac.send_goal(goal)
             self.move_base_ac.wait_for_result(rospy.Duration(100.0))
-            success = self.move_base_ac.get_state()
+            success = self.move_base_ac.get_state() == SimpleGoalState.DONE
         
         except rospy.ROSException as e:
             rospy.loginfo("Navigation error: %s", e)
@@ -278,44 +279,6 @@ class StateMachine(object):
             return False
     
 
-    def reset_aruco(self):
-
-        rospy.loginfo("%s: Reset aruco cube...", self.node_name)
-        aruco_cube_path = rospy.get_param("/gazebo_models_handler/aruco_cube_sdf")
-        self.dlt_model_srv = "/gazebo/delete_model"
-        self.spawn_model_srv = "/gazebo/spawn_sdf_model"
-
-        # Wait for service providers
-        rospy.wait_for_service(self.dlt_model_srv, timeout=30)
-        rospy.wait_for_service(self.spawn_model_srv, timeout=30)
-        self.delete_model_srv = rospy.ServiceProxy(self.dlt_model_srv, DeleteModel)
-
-        rospy.loginfo("%s: Services received!", self.node_name)
-
-        # Initial pose of the cube
-        initial_pose = Pose()
-        initial_pose.position.x = -1.130530
-        initial_pose.position.y = -6.653650
-        initial_pose.position.z = 0.862500
-
-        f = open(aruco_cube_path,'r')
-        sdffile = f.read()
-
-        rospy.loginfo("%s: Calling gazebo delete_models", self.node_name)
-        try:
-            delete_cube = DeleteModelRequest('aruco_cube')
-            delete_model_res = self.delete_model_srv(delete_cube)
-
-        except rospy.ServiceException as e:
-            print("Service call to gazebo delete_models failed: %s"%e)
-
-        rospy.loginfo("%s: Respawn aruco model...", self.node_name)
-        spawn_model_prox = rospy.ServiceProxy(self.spawn_model_srv, SpawnModel)
-        spawn_model_prox("aruco_cube", sdffile, "/", initial_pose, "world")
-        
-        return 0
-
-
     def check_states(self):
 
         while not rospy.is_shutdown():
@@ -328,7 +291,7 @@ class StateMachine(object):
                 move_msg.linear.x = -0.5
                 self.move_base_motion(move_msg, time=1)
 
-                # tuuck arm
+                # tuck arm
                 success = self.tuck_arm_motion()
                 
                 # next state
@@ -418,7 +381,7 @@ class StateMachine(object):
                     else:
                         self.state = 2
                         rospy.loginfo("%s: Pick up failed!", self.node_name)
-                        self.reset_aruco()
+                        reset_aruco()
 
                     rospy.sleep(3)
 
@@ -426,7 +389,7 @@ class StateMachine(object):
                     print("Service call to move_head server failed: %s"%e)
 
 
-            # State 6:  Navigate to pick pose
+            # State 6:  Navigate to place pose
             if self.state == 6:
                 self.prev_state = self.state
                 target_pose = rospy.wait_for_message(self.place_pose_topic_ns, PoseStamped, 5)
