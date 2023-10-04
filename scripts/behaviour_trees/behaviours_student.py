@@ -12,8 +12,6 @@ from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from sensor_msgs.msg import JointState
 from robotics_project.srv import MoveHead, MoveHeadRequest, MoveHeadResponse
 
-from reset_aruco import reset_aruco
-
 
 class counter(pt.behaviour.Behaviour):
 
@@ -71,6 +69,8 @@ class go(pt.behaviour.Behaviour):
         rate = rospy.Rate(10)
         self.cmd_vel_pub.publish(self.move_msg)
         rate.sleep()
+        rospy.loginfo("Moving...")
+
         # tell the tree that you're running
         return pt.common.Status.RUNNING
 
@@ -181,7 +181,6 @@ class goto(pt.behaviour.Behaviour):
             rospy.loginfo("Hej, aruco cube is missing!")
             self.move_base_ac.cancel_goal()
             self.sent_goal = False
-            reset_aruco()
             return pt.common.Status.FAILURE
 
         # if I'm still trying :|
@@ -467,9 +466,33 @@ class lookforaruco(pt.behaviour.Behaviour):
             self.cmd_vel_pub.publish(self.move_msg)
             rate.sleep()
 
-        # tell the tree that you're running
-        return pt.common.Status.RUNNING
+            # tell the tree that you're running
+            return pt.common.Status.RUNNING
+        
+        else: return pt.common.Status.SUCCESS
 
 
+class resetaruco(pt.behaviour.Behaviour):
 
+    """
+    Clear both local and global cost map.
+    Returns running whilst awaiting the result,
+    success if the action was successful, and v.v..
+    """
 
+    def __init__(self):
+
+        self.name = "Reset aruco cube!"
+        rospy.loginfo("Initialising reset aruco behaviour.")
+
+        # become a behaviour
+        super(resetaruco, self).__init__(self.name)
+
+    def update(self):
+
+        from reset_aruco import reset_aruco
+        reset_aruco()
+        rospy.loginfo("Reset aruco cube!")
+
+        # tell the tree that you're success
+        return pt.common.Status.SUCCESS

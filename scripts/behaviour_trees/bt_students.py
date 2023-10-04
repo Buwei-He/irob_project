@@ -38,13 +38,24 @@ class BehaviourTree(ptr.trees.BehaviourTree):
 
 		b6 = movearm("pick")
 
-		b7 = goto("place", with_aruco=True)
+		b7 = movehead("up")
 
-		b8 = movearm("place")
+		b8 = goto("place", with_aruco=True)
+
+		b9 = movehead("down")
+
+		b10 = movearm("place")
+
+		inner_seq = RSequence(name="Inner sequence", children=[b2, b3, b4, b5, b6, b7, b8, b9, b10])
+
+		inner_loop = pt.composites.Selector(
+			name="Pick and place fallback",
+			children=[resetaruco(), inner_seq, lookforaruco(angular=0)]
+		)
 
 		# become the tree
 		rospy.loginfo("Behaviour tree...")
-		tree = RSequence(name="Main sequence", children=[b0, b1, b2, b3, b4, b5, b6, b7, b8])
+		tree = RSequence(name="Main sequence", children=[b0, b1, inner_loop])
 		super(BehaviourTree, self).__init__(tree)
 
 		# execute the behaviour tree
