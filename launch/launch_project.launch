@@ -3,7 +3,7 @@
 
   <!-- ROS PARAMETERS -->
   <!-- Initial robot pose in Gazebo: change for levels A, C or E (F for demo)-->
-  <arg name="student_level"         default="C"/>
+  <arg name="student_level"         default="A"/>
   <arg name="run"                   default="true"/>
 
   <!-- System level -->
@@ -96,7 +96,8 @@
   <group ns="$(arg namespace_project)">
     <!-- Mission planner -->
     <!-- <node pkg="robotics_project" type="state_machine_test.py" name="logic_state_machine" output="screen" if="$(arg run)"> -->
-    <node pkg="robotics_project" type="bt_students.py" name="bt_tree" output="screen" if="$(arg run)">
+    <!-- <node pkg="robotics_project" type="bt_students.py" name="bt_tree" output="screen" if="$(arg run)"> -->
+    <node pkg="robotics_project" type="behaviour_tree.py" name="bt_tree" output="screen" if="$(arg run)">
       <param name="global_loc_srv"      value="$(arg global_loc_srv)"/>
       <param name="clear_costmaps_srv"  value="$(arg clear_costmaps_srv)"/>
       <param name="pick_srv"            value="$(arg pick_srv)"/>

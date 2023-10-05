@@ -8,7 +8,8 @@ from geometry_msgs.msg import Pose
 import signal
 import sys
 
-def reset_aruco():
+
+def ResetAruco():
 	rospy.loginfo("Reset aruco cube...")
 	aruco_cube_path = rospy.get_param("/gazebo_models_handler/aruco_cube_sdf")
 	dlt_model_srv = "/gazebo/delete_model"
@@ -45,11 +46,24 @@ def reset_aruco():
 	
 	return 0
 
+
+def GetModelPose(obj_name):
+	try:
+		model_state = rospy.ServiceProxy('/gazebo/get_model_state', GetModelState)
+		model_poses = model_state(obj_name, 'link')
+
+	except rospy.ServiceException as e:
+		rospy.loginfo("Get Model State service call failed:  {0}".format(e))
+		
+	return model_poses
+
+
 if __name__ == "__main__":
     
     rospy.init_node('reset_aruco')
     try:
-        reset_aruco()
+        # ResetAruco()
+        print(GetModelPose("table_3_clone"))
 
     except rospy.ROSInterruptException:
         pass
