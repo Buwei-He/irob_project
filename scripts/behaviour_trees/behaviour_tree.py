@@ -62,13 +62,13 @@ def create_root():
     
     tasks = pt.composites.Sequence(name="Tasks")
     is_safe = pt.blackboard.CheckBlackboardVariable(
-        name="Safe?",
+        name="Reset?",
         variable_name='reset_tasks',
         expected_value=True
     )
     preempt = pt.composites.Selector(name="Preempt?")
     is_safe_cp = pt.meta.success_is_running(pt.blackboard.CheckBlackboardVariable)(
-        name="Safe?",
+        name="Reset?",
         variable_name='reset_tasks',
         expected_value=True
     )
