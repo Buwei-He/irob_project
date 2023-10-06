@@ -18,7 +18,7 @@
 
   <!-- Navigation -->
   <arg name="provide_map"     default="true"/>
-  <arg name="localization"    default="fake"/>
+  <arg name="localization"    default="amcl"/>
   <arg name="map_path"        default="$(find robotics_project)/pal/tiago_maps/config"/>
   <arg name="global_planner"  default="navfn"/>
   <arg name="local_planner"   default="eband"/>
@@ -33,8 +33,8 @@
   <arg name="multiple"    default="false"/>
 
   <!-- Custom -->
-  <arg name="global_loc_srv"      default="/amcl_pose"/>
-  <arg name="clear_costmaps_srv"  default="/clear_octomap"/>
+  <arg name="robot_pose_topic"      default="/amcl_pose"/>
+  <arg name="clear_costmaps_srv"  default="/none"/>
   <arg name="pick_srv"            default="/$(arg namespace_project)/pick_service"/>
   <arg name="place_srv"           default="/$(arg namespace_project)/place_service"/>
   <arg name="move_head_srv"       default="/$(arg namespace_project)/move_head_gui"/>
@@ -66,7 +66,7 @@
     </node> -->
 
     <!-- Project RGBD point cloud to laser-scan -->
-    <node pkg="depthimage_to_laserscan" type="depthimage_to_laserscan" name="depthimage_to_laserscan">
+    <!-- <node pkg="depthimage_to_laserscan" type="depthimage_to_laserscan" name="depthimage_to_laserscan">
       <remap from="image" to="xtion/depth_registered/image_raw"/>
       <remap from="scan"  to="rgbd_scan"/>
       <param name="scan_height" value="400"/>
@@ -74,7 +74,7 @@
       <param name="range_min" value="0.15"/>
       <param name="range_max" value="10.0"/>
       <param name="output_frame_id" value="base_footprint"/>
-    </node>
+    </node> -->
 
     <!-- AMCL Localization -->
     <include file="$(find tiago_2dnav)/launch/localization.launch">
@@ -98,7 +98,7 @@
     <!-- <node pkg="robotics_project" type="state_machine_test.py" name="logic_state_machine" output="screen" if="$(arg run)"> -->
     <!-- <node pkg="robotics_project" type="bt_students.py" name="bt_tree" output="screen" if="$(arg run)"> -->
     <node pkg="robotics_project" type="behaviour_tree.py" name="bt_tree" output="screen" if="$(arg run)">
-      <param name="global_loc_srv"      value="$(arg global_loc_srv)"/>
+      <param name="robot_pose_topic"    value="$(arg robot_pose_topic)"/>
       <param name="clear_costmaps_srv"  value="$(arg clear_costmaps_srv)"/>
       <param name="pick_srv"            value="$(arg pick_srv)"/>
       <param name="place_srv"           value="$(arg place_srv)"/>
@@ -113,7 +113,7 @@
       <param name="cube_pose"           value="0.50306828716, 0.0245718046511, 0.915538062216, 0.0144467629456, 0.706141958739, 0.707257659069, -0.0306827123383"/>
       <param name="robot_base_frame"    value="$(arg move_base_frame)" />
       <param name="move_head_srv"       value="$(arg move_head_srv)"/>
-      <param name="amcl_estimate"       value="" />
+      <param name="global_loc_srv"       value="/global_localization" />
       <param name="move_base_feedback"  value="" />
     </node>
 

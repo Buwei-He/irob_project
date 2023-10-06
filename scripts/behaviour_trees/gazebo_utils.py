@@ -62,8 +62,8 @@ if __name__ == "__main__":
     
     rospy.init_node('reset_aruco')
     try:
-        # ResetAruco()
-        print(GetModelPose("table_3_clone"))
+        ResetAruco()
+        # print(GetModelPose("table_3_clone"))
 
     except rospy.ROSInterruptException:
         pass
