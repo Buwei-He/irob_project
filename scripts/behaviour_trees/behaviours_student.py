@@ -9,7 +9,7 @@ from std_srvs.srv import Empty, SetBool, SetBoolRequest
 from actionlib import SimpleActionClient, SimpleGoalState
 from play_motion_msgs.msg import PlayMotionAction, PlayMotionGoal
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import JointState, LaserScan
 from robotics_project.srv import MoveHead, MoveHeadRequest, MoveHeadResponse
 from gazebo_utils import *
 
@@ -74,24 +74,60 @@ class Go(pt.behaviour.Behaviour):
 
 class GoTo(pt.behaviour.Behaviour):
 
-    """
-    Sends a goal to the move base action server.
-    Returns running whilst awaiting the result,
-    success if the action was successful, and v.v..
+    """PoseStamped
     """
 
     def __init__(self, target_name="pick"):
 
         self.name = "Go to pickup pose" if target_name == "pick" else "Go to place pose"
         self.target_name = target_name
-        self.goal = None
+
+        # setup action client
+        self.move_base_ac = SimpleActionClient("/move_base", MoveBaseAction)
+        if not self.move_base_ac.wait_for_server(rospy.Duration(1000)):
+            rospy.logerr("Could not connect to move_base action server.")
+            exit()
+
+        # personal goal setting
+        self.goal = MoveBaseGoal()
+
         self.tried = False
+        # self.amcl_cnt = 0
+        # self.amcl_cnt_max = 10
+        # self.prev_amcl_sum = 100
 
         # become a behaviour
         super(GoTo, self).__init__(self.name)
 
 
     def update(self):
+
+        # amcl_pose = pt.Blackboard().get("robot_pose")
+        # if amcl_pose is not None:
+        #     amcl_cov = amcl_pose.pose.covariance
+        #     amcl_sum = np.sum(np.abs(amcl_cov))
+        #     is_increasing = self.prev_amcl_sum < amcl_sum
+        #     is_decreasing = self.prev_amcl_sum * 0.9 > amcl_sum 
+        #     rospy.loginfo("prev.: %.4f; curr.: %.4f; +: %s", self.prev_amcl_sum, amcl_sum, str(self.amcl_cnt))
+
+        #     self.prev_amcl_sum = amcl_sum
+        #     if is_increasing:
+        #         # covariance reduces as n increase
+        #         self.amcl_cnt += 1
+        #         if self.amcl_cnt > self.amcl_cnt_max:
+        #             rospy.loginfo("%s: Kidnap! val: %.2f", self.name, amcl_sum)
+        #             global_loc_service_ns = rospy.get_param(rospy.get_name() + '/global_loc_srv')
+        #             self.global_loc_service = rospy.ServiceProxy(global_loc_service_ns, Empty)
+        #             self.global_loc_req = self.global_loc_service()
+        #             self.prev_amcl_sum = 100
+
+        #             amcl_pose = pt.Blackboard().set("retry_tasks", True)
+        #             self.move_base_ac.cancel_all_goals()
+        #             return pt.common.Status.FAILURE
+        #     elif is_decreasing:
+        #         self.amcl_cnt = 0
+        # else:
+        #     amcl_sum = 100
 
         # if success:
         if not self.tried:
@@ -107,14 +143,7 @@ class GoTo(pt.behaviour.Behaviour):
 
 
     def initialise(self):
-        # setup action client
-        self.move_base_ac = SimpleActionClient("/move_base", MoveBaseAction)
-        if not self.move_base_ac.wait_for_server(rospy.Duration(1000)):
-            rospy.logerr("Could not connect to move_base action server.")
-            exit()
-
-        # personal goal setting
-        self.goal = MoveBaseGoal()
+        
         target_pose = pt.Blackboard().get(self.target_name+"_pose")
         use_table_pose = pt.Blackboard().get("get_table_pose")
         if use_table_pose and self.target_name is not "pick":
@@ -133,7 +162,7 @@ class GoTo(pt.behaviour.Behaviour):
 
     def terminate(self, new_status):
         rospy.loginfo("Initialising %s behaviour.", self.name)
-        self.move_base_ac.cancel_goal(self.goal)
+        self.move_base_ac.cancel_all_goals()
         return super().terminate(new_status)
 
 
@@ -156,6 +185,7 @@ class TuckArm(pt.behaviour.Behaviour):
         self.finished = False
         # become a behaviour
         super(TuckArm, self).__init__("Tuck arm!")
+        
     def update(self):
         # already tucked the arm
         if self.finished: 
@@ -173,9 +203,9 @@ class TuckArm(pt.behaviour.Behaviour):
             # than I'm finished!
             self.finished = True
             return pt.common.Status.SUCCESS
-        # if failed
-        elif not self.play_motion_ac.get_result():
-            return pt.common.Status.FAILURE
+        # # if failed
+        # elif not self.play_motion_ac.get_result():
+        #     return pt.common.Status.FAILURE
         # if I'm still trying :|
         else:
             return pt.common.Status.RUNNING
@@ -400,6 +430,7 @@ class Relocalise(pt.behaviour.Behaviour):
 
         self.ticks = 0
         self.max_ticks = max_ticks
+        self.max_cov = 0.01
 
         # become a behaviour
         super(Relocalise, self).__init__(self.name)
@@ -407,11 +438,18 @@ class Relocalise(pt.behaviour.Behaviour):
 
     def update(self):
 
-        self.ticks += 1
-        if self.ticks < self.max_ticks:
+        amcl_pose = pt.Blackboard().get("robot_pose")
+        if amcl_pose is not None:
+            amcl_cov = amcl_pose.pose.covariance
+            is_converged = np.sum(np.abs(amcl_cov)) < self.max_cov
+        else: 
+            is_converged = False
+
+        if self.ticks < self.max_ticks and not is_converged:
            # send the message 
             self.cmd_vel_pub.publish(self.move_msg)
             rate = pt.Blackboard().get("vel_pub_rate")
+            self.ticks += 1
             rospy.Rate(rate).sleep()
 
             # tell the tree that you're running
@@ -477,13 +515,8 @@ class RetryRobot(pt.behaviour.Behaviour):
         # server
         mv_head_srv_nm = rospy.get_param(rospy.get_name() + '/move_head_srv')
         self.move_head_srv = rospy.ServiceProxy(mv_head_srv_nm, MoveHead)
-        # rospy.wait_for_service(mv_head_srv_nm, timeout=1)
+        rospy.wait_for_service(mv_head_srv_nm, timeout=1)
 
-        global_loc_service_ns = rospy.get_param(rospy.get_name() + '/global_loc_srv')
-        self.global_loc_service = rospy.ServiceProxy(global_loc_service_ns, Empty)
-        # rospy.wait_for_service(global_loc_service_ns, timeout=1)
-
-        self.global_loc_req = self.global_loc_service()
         self.move_head_req = self.move_head_srv("down")
         
         return super().initialise()
@@ -511,6 +544,51 @@ class RetryTasks(pt.behaviour.Behaviour):
     def update(self):
         pt.Blackboard().set("retry_tasks", True)
         return pt.common.Status.SUCCESS
+
+
+class DetectKidnap(pt.behaviour.Behaviour):
+
+    """
+    Clear both local and global cost map.
+    Returns running whilst awaiting the result,
+    success if the action was successful, and v.v..
+    """
+
+    def __init__(self):
+
+        self.name = "Detect kidnap"
+        self.prev_scan = None
+        
+        # become a behaviour
+        super(DetectKidnap, self).__init__(self.name)
+
+
+    def update(self):
+        # activate = pt.Blackboard().get("scan")
+        scan_raw = pt.Blackboard().get("scan")
+        amcl_pose = pt.Blackboard().get("robot_pose")
+        
+        scan = np.array(scan_raw.ranges)
+        amcl_cov = amcl_pose.pose.covariance
+
+        # scan_sorted = np.sort(scan)[::-1]
+        scan_sorted = scan
+        if self.prev_scan is not None and amcl_pose is not None:
+            correlation = np.correlate(self.prev_scan, scan_sorted)[0] * 0.0001
+            amcl_sum = np.sum(np.abs(amcl_cov))
+            rospy.loginfo("1",correlation)
+        self.prev_scan = scan_sorted
+
+        return pt.common.Status.RUNNING
+    
+
+    def initialise(self):
+        self.prev_scan = None
+        return super().initialise()
+    
+
+    def terminate(self, new_status):
+        return super().terminate(new_status)
 
 
 class ExitProgram(pt.behaviour.Behaviour):

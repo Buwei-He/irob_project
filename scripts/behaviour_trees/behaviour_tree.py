@@ -24,21 +24,22 @@ def create_root():
     """
     root = pt.composites.Parallel("Tutorial")
 
-    topics2bb = pt.composites.Sequence("Topics2BB")
+    # topics2bb = pt.composites.Sequence("Topics2BB")
+    topics2bb = pt.composites.Parallel("Topics2BB")
     pt.Blackboard().set(name="retry_tasks", value=True)
     pt.Blackboard().set(name="vel_pub_rate", value=10)
-    pt.Blackboard().set(name="get_table_pose", value=True)
+    pt.Blackboard().set(name="get_table_pose", value=False)
     pt.Blackboard().set(name="table_name", value="table_3_clone")
     pt.Blackboard().set(name="aruco_cube_counter", value=0)
 
-    joints2bb = ptr.subscribers.ToBlackboard(name="joint_states",
+    joints_to_bb = ptr.subscribers.ToBlackboard(name="joint_states",
                                             topic_name=rospy.get_param(rospy.get_name() + '/joint_states_topic'),
                                             topic_type=JointState,
                                             blackboard_variables={"joint_states": None},
                                             clearing_policy=pt.common.ClearingPolicy.NEVER
                                             )
 	
-    aruco2bb = ptr.subscribers.ToBlackboard(name="aruco_pose",
+    aruco_to_bb = ptr.subscribers.ToBlackboard(name="aruco_pose",
                                             topic_name=rospy.get_param(rospy.get_name() + '/aruco_pose_topic'),
                                             topic_type=PoseStamped,
                                             blackboard_variables={"aruco_pose": None},
@@ -65,6 +66,13 @@ def create_root():
                                             blackboard_variables={"robot_pose": None},
                                             clearing_policy=pt.common.ClearingPolicy.NEVER
                                             )
+    
+    scan_to_bb = ptr.subscribers.ToBlackboard(name="scan",
+                                            topic_name="/scan_raw",
+                                            topic_type=LaserScan,
+                                            blackboard_variables={"scan": None},
+                                            clearing_policy=pt.common.ClearingPolicy.NEVER
+                                            )
 
     priorities = pt.composites.Selector("Priorities")
     
@@ -83,7 +91,7 @@ def create_root():
 
     initial_tasks = pt.composites.Sequence(name="Initialise")
 
-    tasks_cp = pt.composites.Sequence(name="Robot tasks")
+    tasks_cp = pt.composites.Parallel(name="Robot tasks")
 
     pick_and_place_tasks = pt.composites.Sequence(name="Pick and place")
 
@@ -97,7 +105,7 @@ def create_root():
 
     exit_program = ExitProgram()
 
-    retry_robot = RetryRobot()
+    reset_robot = RetryRobot()
 
     pause = pt.timers.Timer("Pause", duration=1.0)
     
@@ -105,7 +113,9 @@ def create_root():
 
     reverse = Go("Reverse", linear=-0.05, angular=0, max_ticks=30)
 
-    localize = Relocalise(linear=0.4, angular=0.7, max_ticks=1000)
+    localize = Relocalise(linear=0.1, angular=0.8, max_ticks=100)
+
+    localize_cp = Relocalise(linear=0.1, angular=0.8, max_ticks=100)
 
     # move to chair
     move_to_pickup = GoTo("pick")
@@ -134,19 +144,21 @@ def create_root():
 
     arm_place = MoveRobotArm("place")
 
+    detect_kidnap = DetectKidnap()
+
     # cleanup = pt.composites.Parallel(name="Cleanup", policy=pt.common.ParallelPolicy.SUCCESS_ON_ONE)
     
 
     root.add_children([topics2bb, priorities])
-    topics2bb.add_children([pick_pose_to_bb, place_pose_to_bb, robot_pose_to_bb, aruco2bb, joints2bb])
+    topics2bb.add_children([scan_to_bb, pick_pose_to_bb, place_pose_to_bb, robot_pose_to_bb, aruco_to_bb, joints_to_bb])
     priorities.add_children([tasks])
-    tasks.add_children([exit_fallback, initial_tasks])
+    tasks.add_children([initial_tasks, exit_fallback, preempt])
     preempt.add_children([tasks_cp])
-    tasks_cp.add_children([pick_and_place_tasks])
-    initial_tasks.add_children([retry_robot, localize, tuck_arm])
+    tasks_cp.add_children([pick_and_place_tasks, detect_kidnap])
+    initial_tasks.add_children([localize, tuck_arm])
     pick_tasks.add_children([move_to_pickup, head_down, find_aruco, arm_pickup])
     place_tasks.add_children([move_to_place, arm_place])
-    pick_and_place_tasks.add_children([pick_tasks, place_tasks, retry_tasks])
+    pick_and_place_tasks.add_children([reset_robot, pick_tasks, place_tasks, retry_tasks])
     exit_fallback.add_children([is_safe, exit_program])
     # cleanup.add_children([pause])
     return root

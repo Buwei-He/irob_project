@@ -33,7 +33,7 @@
   <arg name="multiple"    default="false"/>
 
   <!-- Custom -->
-  <arg name="robot_pose_topic"      default="/amcl_pose"/>
+  <arg name="robot_pose_topic"    default="/amcl_pose"/>
   <arg name="clear_costmaps_srv"  default="/none"/>
   <arg name="pick_srv"            default="/$(arg namespace_project)/pick_service"/>
   <arg name="place_srv"           default="/$(arg namespace_project)/place_service"/>
