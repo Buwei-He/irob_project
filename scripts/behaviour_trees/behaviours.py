@@ -146,7 +146,7 @@ class GoTo(pt.behaviour.Behaviour):
         
         target_pose = pt.Blackboard().get(self.target_name+"_pose")
         use_table_pose = pt.Blackboard().get("get_table_pose")
-        if use_table_pose and self.target_name is not "pick":
+        if use_table_pose and self.target_name != "pick":
             table_name = pt.Blackboard().get("table_name")
             target_pose = GetModelPose(table_name)
             target_pose.header.frame_id = "map"
@@ -209,6 +209,11 @@ class TuckArm(pt.behaviour.Behaviour):
         # if I'm still trying :|
         else:
             return pt.common.Status.RUNNING
+        
+    def initialise(self):
+        self.finished = False
+        self.sent_goal = False
+        return super().initialise()
 
 
 class MoveRobotHead(pt.behaviour.Behaviour):
@@ -334,7 +339,8 @@ class LookForAruco(pt.behaviour.Behaviour):
 
     def update(self):
         aruco_pose_msg = pt.Blackboard().get("aruco_pose")
-        if type(aruco_pose_msg) is PoseStamped and aruco_pose_msg.pose.position.z > 0.8:
+        aruco_pose_seq = pt.Blackboard().get("aruco_pose_seq")
+        if type(aruco_pose_msg) is PoseStamped and aruco_pose_msg.header.seq > aruco_pose_seq:
             rospy.loginfo("%s: Success!", self.name)
             return pt.common.Status.SUCCESS
 
@@ -344,13 +350,32 @@ class LookForAruco(pt.behaviour.Behaviour):
 
 
     def initialise(self):
-        rospy.loginfo("Initialising detect aruco behaviour.")
-
+        rospy.loginfo("Initialising %s behaviour.", self.name)
         return super().initialise()
 
 
     def terminate(self, new_status):
         return super().terminate(new_status)
+
+
+class CleanArucoPose(pt.behaviour.Behaviour):
+
+    def __init__(self):
+        self.name = "Clean aruco pose"
+        # become a behaviour
+        super(CleanArucoPose, self).__init__(self.name)
+
+    def initialise(self):
+        rospy.loginfo("Initialising %s behaviour.", self.name)
+        aruco_pose_msg = pt.Blackboard().get("aruco_pose")
+        if type(aruco_pose_msg) is PoseStamped:
+            pt.Blackboard().set("aruco_pose_seq", aruco_pose_msg.header.seq)
+        else: 
+            pt.Blackboard().set("aruco_pose_seq", -1)
+        return super().initialise()
+    
+    def update(self):
+        return pt.common.Status.SUCCESS
 
 
 class CheckAruco(pt.behaviour.Behaviour):

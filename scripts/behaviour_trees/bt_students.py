@@ -24,40 +24,41 @@ def TaskC():
     """
     root = pt.composites.Parallel("Tutorial")
 
-    topics2bb = pt.composites.Sequence("Topics2BB")
-    # topics2bb = pt.composites.Parallel("Topics2BB")
+    # topics2bb = pt.composites.Sequence("Topics2BB")
+
+    topics2bb = pt.composites.Parallel("Topics2BB")
     pt.Blackboard().set(name="retry_tasks", value=True)
     pt.Blackboard().set(name="vel_pub_rate", value=10)
     pt.Blackboard().set(name="get_table_pose", value=False)
     pt.Blackboard().set(name="table_name", value="table_3_clone")
     pt.Blackboard().set(name="aruco_cube_counter", value=0)
 	
-    aruco_to_bb = ptr.subscribers.ToBlackboard(name="aruco_pose",
+    aruco_to_bb = pt.meta.success_is_running(ptr.subscribers.ToBlackboard)(name="aruco_pose",
                                             topic_name=rospy.get_param(rospy.get_name() + '/aruco_pose_topic'),
                                             topic_type=PoseStamped,
                                             blackboard_variables={"aruco_pose": None},
-                                            clearing_policy=pt.common.ClearingPolicy.ON_INITIALISE
+                                            clearing_policy=pt.common.ClearingPolicy.NEVER
                                             )
 	
     pick_pose_to_bb = ptr.subscribers.ToBlackboard(name="pick_pose",
                                             topic_name=rospy.get_param(rospy.get_name() + '/pick_pose_topic'),
                                             topic_type=PoseStamped,
                                             blackboard_variables={"pick_pose": None},
-                                            clearing_policy=pt.common.ClearingPolicy.ON_INITIALISE
+                                            clearing_policy=pt.common.ClearingPolicy.NEVER
                                             )
 	
     place_pose_to_bb = ptr.subscribers.ToBlackboard(name="place_pose",
                                             topic_name=rospy.get_param(rospy.get_name() + '/place_pose_topic'),
                                             topic_type=PoseStamped,
                                             blackboard_variables={"place_pose": None},
-                                            clearing_policy=pt.common.ClearingPolicy.ON_INITIALISE
+                                            clearing_policy=pt.common.ClearingPolicy.NEVER
                                             )
 
     robot_pose_to_bb = ptr.subscribers.ToBlackboard(name="robot_pose",
                                             topic_name=rospy.get_param(rospy.get_name() + '/robot_pose_topic'),
                                             topic_type=PoseWithCovarianceStamped,
                                             blackboard_variables={"robot_pose": None},
-                                            clearing_policy=pt.common.ClearingPolicy.ON_INITIALISE
+                                            clearing_policy=pt.common.ClearingPolicy.NEVER
                                             )
 
     priorities = pt.composites.Selector("Priorities")
@@ -81,17 +82,19 @@ def TaskC():
 
     place_tasks = pt.composites.Sequence(name="Place tasks")
 
+    final_check = pt.composites.Sequence(name="Final check")
+
     exit_fallback = pt.composites.Selector(name="Exit program")
 
     exit_program = ExitProgram()
 
     reset_robot = ResetRobot()
 
-    pause = pt.timers.Timer("Pause", duration=1.0)
+    pause = pt.timers.Timer("Pause", duration=3.0)
     
     tuck_arm = TuckArm()
 
-    reverse = Go("Reverse", linear=-0.05, angular=0, max_ticks=30)
+    reverse = Go("Reverse", linear=-0.1, angular=0, max_ticks=30)
 
     # move to chair
     move_to_pickup = GoTo("pick")
@@ -113,6 +116,8 @@ def TaskC():
         children=[LookForAruco(), RetryTasks()]
     )
 
+    clean_pose = CleanArucoPose()
+
     arm_pickup = MoveRobotArm("pick")
 
     move_to_place = GoTo("place")
@@ -126,9 +131,10 @@ def TaskC():
     priorities.add_children([tasks])
     tasks.add_children([exit_fallback, preempt])
     preempt.add_children([pick_and_place_tasks])
-    pick_tasks.add_children([move_to_pickup, head_down, find_aruco, arm_pickup, pause])
+    pick_tasks.add_children([move_to_pickup, head_down, clean_pose, find_aruco, arm_pickup, pause])
     place_tasks.add_children([move_to_place, arm_place, pause])
-    pick_and_place_tasks.add_children([reset_robot, reverse, tuck_arm, pick_tasks, place_tasks, is_placed])
+    final_check.add_children([clean_pose, pause, is_placed])
+    pick_and_place_tasks.add_children([reset_robot, reverse, tuck_arm, pick_tasks, place_tasks, final_check])
     exit_fallback.add_children([is_safe, exit_program])
 
     return root
