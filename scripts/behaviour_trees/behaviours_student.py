@@ -483,7 +483,7 @@ class Relocalise(pt.behaviour.Behaviour):
         return super().terminate(new_status)
 
 
-class RetryRobot(pt.behaviour.Behaviour):
+class ResetRobot(pt.behaviour.Behaviour):
 
     """
     Clear both local and global cost map.
@@ -493,9 +493,9 @@ class RetryRobot(pt.behaviour.Behaviour):
 
     def __init__(self):
 
-        self.name = "Retry robot"
+        self.name = "Reset robot"
         # become a behaviour
-        super(RetryRobot, self).__init__(self.name)
+        super(ResetRobot, self).__init__(self.name)
 
 
     def update(self):
@@ -563,6 +563,10 @@ class DetectKidnap(pt.behaviour.Behaviour):
         super(DetectKidnap, self).__init__(self.name)
 
 
+    def get_yaw(self, q):
+        return np.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+
+
     def update(self):
         # activate = pt.Blackboard().get("scan")
         scan_raw = pt.Blackboard().get("scan")
@@ -571,14 +575,29 @@ class DetectKidnap(pt.behaviour.Behaviour):
         scan = np.array(scan_raw.ranges)
         amcl_cov = amcl_pose.pose.covariance
 
-        # scan_sorted = np.sort(scan)[::-1]
-        scan_sorted = scan
+        # get position of lidar (robot) in map frame
+        robot_x = amcl_pose.pose.position.x 
+        robot_y = amcl_pose.pose.position.y
+        robot_yaw = self.get_yaw(amcl_pose.pose.orientation)
+
+        bearings = np.arange(
+            scan.angle_min,
+            scan.angle_min + (len(scan.ranges)) * scan.angle_increment,
+            scan.angle_increment,
+        )
+
+        scan_ranges = np.clip(scan.ranges, scan.range_min, scan.range_max)
+        
+        lidar_x = scan_ranges * np.cos(bearings + robot_yaw) + robot_x
+        lidar_y = scan_ranges * np.sin(bearings + robot_yaw) + robot_y
+        scan_tf = np.concatenate(np.sort(lidar_x), np.sort(lidar_y))
+
         if self.prev_scan is not None and amcl_pose is not None:
-            correlation = np.correlate(self.prev_scan, scan_sorted)[0] * 0.0001
+            correlation = np.correlate(self.prev_scan, scan_tf)[0] * 0.0001
             amcl_sum = np.sum(np.abs(amcl_cov))
             rospy.loginfo("1",correlation)
-        self.prev_scan = scan_sorted
-
+        
+        self.prev_scan = scan_tf
         return pt.common.Status.RUNNING
     
 

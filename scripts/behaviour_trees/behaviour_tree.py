@@ -105,7 +105,7 @@ def create_root():
 
     exit_program = ExitProgram()
 
-    reset_robot = RetryRobot()
+    reset_robot = ResetRobot()
 
     pause = pt.timers.Timer("Pause", duration=1.0)
     
