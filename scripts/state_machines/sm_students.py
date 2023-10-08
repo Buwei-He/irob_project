@@ -4,321 +4,328 @@ import numpy as np
 from numpy import linalg as LA
 
 import rospy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Pose, Twist
 from std_srvs.srv import Empty, SetBool, SetBoolRequest  
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from robotics_project.srv import MoveHead, MoveHeadRequest, MoveHeadResponse
 from play_motion_msgs.msg import PlayMotionAction, PlayMotionGoal
 from sensor_msgs.msg import JointState
 
-from actionlib import SimpleActionClient
+from actionlib import SimpleActionClient, SimpleGoalState
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from nav_msgs.msg import Odometry
 
+from gazebo_utils import GetModelPose, ResetAruco
 from moveit_msgs.msg import MoveItErrorCodes
+
 moveit_error_dict = {}
 for name in MoveItErrorCodes.__dict__.keys():
     if not name[:1] == '_':
         code = MoveItErrorCodes.__dict__[name]
         moveit_error_dict[code] = name
 
+# Read table pose from gazebo
+is_reading_table_pose = True
+
 class StateMachine(object):
+    """
+    Custom state machine for mobile robot:
+    State -1: Error message
+    State 0: Move the robot "manually" to door
+    State 1: Tuck arm 
+    State 2: Move the robot "manually" to chair
+    State 3: Lower robot head service
+    State 4: (Invalid)
+    
+    """
     def __init__(self):
         
         self.node_name = "Student SM"
+        self.aruco_pose_received = False
+        self.prev_state = 1
+        self.state = 1
 
         # Access rosparams
-        self.cmd_vel_top = rospy.get_param(rospy.get_name() + '/cmd_vel_topic')
-        self.mv_head_srv_nm = rospy.get_param(rospy.get_name() + '/move_head_srv')
+        # see launch_project.launch for details, and replace "placeholders" and blanks.
+
+        # Move head service
+        self.move_head_service_ns = rospy.get_param(rospy.get_name() + '/move_head_srv')
+        # Pick and Place service
+        self.pick_service_ns = rospy.get_param(rospy.get_name() + '/pick_srv')
+        self.place_service_ns = rospy.get_param(rospy.get_name() + '/place_srv')
+
+        # Pick/Place/Aruco pose topic
+        self.pick_pose_topic_ns = rospy.get_param(rospy.get_name() + '/pick_pose_topic')
+        self.place_pose_topic_ns = rospy.get_param(rospy.get_name() + '/place_pose_topic')
+        self.aruco_pose_topic_ns = rospy.get_param(rospy.get_name() + '/aruco_pose_topic')
+
+        # # hard-code cube pose; send it to aruco_pose_topic if not using visual detection
+        # self.cube_pose = rospy.get_param(rospy.get_name() + '/cube_pose')
+
+        # Command velocity topic
+        self.cmd_vel_topic_ns = rospy.get_param(rospy.get_name() + '/cmd_vel_topic')
 
         # Subscribe to topics
+        self.aruco_pose_subs = rospy.Subscriber(self.aruco_pose_topic_ns, PoseStamped, self.aruco_pose_callback)
 
         # Wait for service providers
-        rospy.wait_for_service(self.mv_head_srv_nm, timeout=30)
+        rospy.wait_for_service(self.move_head_service_ns, timeout=30)
+        rospy.wait_for_service(self.pick_service_ns, timeout=30)
+        rospy.wait_for_service(self.place_service_ns, timeout=30)
 
         # Instantiate publishers
-        self.cmd_vel_pub = rospy.Publisher(self.cmd_vel_top, Twist, queue_size=10)
+        self.cmd_vel_pub = rospy.Publisher(self.cmd_vel_topic_ns, Twist, queue_size=10)
 
-        # Set up action clients
+        # Setup action clients 
+        # play_motion: robot arm action
         rospy.loginfo("%s: Waiting for play_motion action server...", self.node_name)
         self.play_motion_ac = SimpleActionClient("/play_motion", PlayMotionAction)
         if not self.play_motion_ac.wait_for_server(rospy.Duration(1000)):
             rospy.logerr("%s: Could not connect to /play_motion action server", self.node_name)
             exit()
         rospy.loginfo("%s: Connected to play_motion action server", self.node_name)
+        # move_base: robot base action
+        rospy.loginfo("%s: Waiting for move_base action server...", self.node_name)
+        self.move_base_ac = SimpleActionClient("/move_base", MoveBaseAction)
+        if not self.move_base_ac.wait_for_server(rospy.Duration(1000)):
+            rospy.logerr("%s: Could not connect to /move_base action server", self.node_name)
+            exit()
+        rospy.loginfo("%s: Connected to move_base action server", self.node_name)
 
         # Init state machine
-        self.state = 0
         rospy.sleep(3)
         self.check_states()
 
 
+    # callback
+
+    def aruco_pose_callback(self, aruco_pose_msg):
+        """ Update aruco pose. """
+        valid = aruco_pose_msg is not None
+        if valid:
+            self.aruco_pose_received = True
+        return valid
+
+
+    def navigate(self, target_pose):
+        try:
+            rospy.loginfo("%s: Navigating to the target pose...", self.node_name)
+            goal = MoveBaseGoal()
+            goal.target_pose = target_pose
+            self.move_base_ac.send_goal(goal)
+            self.move_base_ac.wait_for_result(rospy.Duration(100.0))
+            success = self.move_base_ac.get_result()
+        
+        except rospy.ROSException as e:
+            rospy.loginfo("Navigation error: %s", e)
+            success = False
+
+        if success:
+            rospy.loginfo("%s: Target pose reached.", self.node_name)
+        else:
+            rospy.logerr("%s: Failed to reach the target, please retry or handle it.", self.node_name)
+            self.move_base_ac.cancel_goal()
+
+        return success
+    
+
+    def go(self, move_msg, time):
+        rate_per_sec = 10
+        rate = rospy.Rate(rate_per_sec)
+        cnt = 0
+        rospy.loginfo("%s: Moving the base...", self.node_name)
+
+        while not rospy.is_shutdown() and cnt < int(time * rate_per_sec):
+            self.cmd_vel_pub.publish(move_msg)
+            rate.sleep()
+            cnt += 1
+        
+        success = True
+
+        return success
+
+
+    def tuck_arm(self):
+        rospy.loginfo("%s: Tucking the arm...", self.node_name)
+        goal = PlayMotionGoal()
+        goal.motion_name = 'home'
+        goal.skip_planning = True
+        self.play_motion_ac.send_goal(goal)
+        self.play_motion_ac.wait_for_result(rospy.Duration(100.0))
+        success = self.play_motion_ac.get_result()
+        # rospy.loginfo(self.play_motion_ac.get_result().error_code)
+        if success or success.error_code == 1:
+            rospy.loginfo("%s: Tuck arm succeeded!", self.node_name)
+            
+        else:
+            rospy.loginfo("%s: Tuck arm failed!", self.node_name)
+            self.play_motion_ac.cancel_goal()
+
+        return success
+    
+
+    def move_head(self, direction="down"):
+        try:
+            rospy.loginfo("%s: Moving robot head", self.node_name)
+            move_head_srv = rospy.ServiceProxy(self.move_head_service_ns, MoveHead)
+            move_head_req = move_head_srv(direction)
+            success = move_head_req.success
+
+            if success:
+                rospy.loginfo("%s: Move head down succeeded!", self.node_name)
+            else:
+                rospy.loginfo("%s: Move head down failed!", self.node_name)
+                
+            return success
+
+        except rospy.ServiceException as e:
+            rospy.loginfo("Service call to move_head server failed: %s" % e)
+            return False
+    
+
     def check_states(self):
 
-        while not rospy.is_shutdown() and self.state != 4:
-            
-            # State 0: Move the robot "manually" to door
+        while not rospy.is_shutdown():
+            # State -1: Error handling
+            if self.state == -1:
+                rospy.logerr("%s: State machine failed. Check your code and try again!", self.node_name)
+                return
+
+            # State 0:  Exit
             if self.state == 0:
-                move_msg = Twist()
-                move_msg.linear.x = 1
-
-                rate = rospy.Rate(10)
-                converged = False
-                cnt = 0
-                rospy.loginfo("%s: Moving towards door", self.node_name)
-                while not rospy.is_shutdown() and cnt < 5:
-                    self.cmd_vel_pub.publish(move_msg)
-                    rate.sleep()
-                    cnt = cnt + 1
-
-                self.state = 1
-                rospy.sleep(1)
+                ResetAruco()
+                rospy.loginfo("%s: Exit!", self.node_name)
+                exit()
 
             # State 1:  Tuck arm 
             if self.state == 1:
-                rospy.loginfo("%s: Tucking the arm...", self.node_name)
-                goal = PlayMotionGoal()
-                goal.motion_name = 'home'
-                goal.skip_planning = True
-                self.play_motion_ac.send_goal(goal)
-                success_tucking = self.play_motion_ac.wait_for_result(rospy.Duration(100.0))
+                self.prev_state = self.state
 
-                if success_tucking:
-                    rospy.loginfo("%s: Arm tuck: ", self.play_motion_ac.get_result())
-                    self.state = 2
-                else:
-                    self.play_motion_ac.cancel_goal()
-                    rospy.logerr("%s: play_motion failed to tuck arm, reset simulation", self.node_name)
-                    self.state = 5
+                ResetAruco()
 
+                move_msg = Twist()
+                move_msg.linear.x = -0.5
+                self.go(move_msg, time=1)
+
+                # tuck arm
+                success = self.tuck_arm()
+                
+                # next state
+                self.state = 2 if success else -1
                 rospy.sleep(1)
 
-            # # State 2:  Move the robot "manually" to chair
+            # State 2:  Navigate to pick pose
             if self.state == 2:
-                move_msg = Twist()
-                move_msg.angular.z = -1
-
-                rate = rospy.Rate(10)
-                converged = False
-                cnt = 0
-                rospy.loginfo("%s: Moving towards table", self.node_name)
-                while not rospy.is_shutdown() and cnt < 5:
-                    self.cmd_vel_pub.publish(move_msg)
-                    rate.sleep()
-                    cnt = cnt + 1
-
-                move_msg.linear.x = 1
-                move_msg.angular.z = 0
-                cnt = 0
-                while not rospy.is_shutdown() and cnt < 15:
-                    self.cmd_vel_pub.publish(move_msg)
-                    rate.sleep()
-                    cnt = cnt + 1
-
-                self.state = 3
+                self.prev_state = self.state
+                target_pose = rospy.wait_for_message(self.pick_pose_topic_ns, PoseStamped, 5)
+                success = self.navigate(target_pose)
+                
+                # next state
+                self.state = 3 if success else -1
                 rospy.sleep(1)
 
             # State 3:  Lower robot head service
-            if self.state == 2:
+            if self.state == 3:
                 try:
                     rospy.loginfo("%s: Lowering robot head", self.node_name)
-                    move_head_srv = rospy.ServiceProxy(self.mv_head_srv_nm, MoveHead)
+                    move_head_srv = rospy.ServiceProxy(self.move_head_service_ns, MoveHead)
                     move_head_req = move_head_srv("down")
-                    
-                    if move_head_req.success == True:
+                    self.prev_state = self.state
+                    if move_head_req.success:
                         self.state = 4
-                        rospy.loginfo("%s: Move head down succeded!", self.node_name)
+                        rospy.loginfo("%s: Move head down succeeded!", self.node_name)
                     else:
+                        self.state = -1
                         rospy.loginfo("%s: Move head down failed!", self.node_name)
-                        self.state = 5
+                        
+                    rospy.sleep(1)
 
-                    rospy.sleep(3)
+                except rospy.ServiceException as e:
+                    print("Service call to move_head server failed: %s"%e)
+                    
+
+            # State 4:  Detect aruco cube
+            if self.state == 4:
+
+                move_msg = Twist()
+                move_msg.angular.z = 0.25
+
+                rate = rospy.Rate(10)
+                cnt = 0
+                rospy.loginfo("%s: Checking if cube is in sight...", self.node_name)
+
+                # re-initialize and detect aruco pose
+                self.aruco_pose_received = False
+                while not rospy.is_shutdown() and not self.aruco_pose_received and cnt < 300:
+                    self.cmd_vel_pub.publish(move_msg)
+                    cnt += 1
+                    rate.sleep()
+
+                self.previous_state = self.state
+                self.state = 5
+                rospy.sleep(1)
+
+
+            # State 5:  Pick up service
+            if self.state == 5:
+                try:
+                    rospy.loginfo("%s: Pick up object", self.node_name)
+                    pick_service = rospy.ServiceProxy(self.pick_service_ns, SetBool)
+                    pick_req = pick_service()
+                    self.prev_state = self.state
+
+                    if pick_req.success:
+                        self.state = 6
+                        rospy.loginfo("%s: Pick up succeeded!", self.node_name)
+                    else:
+                        self.state = 2
+                        rospy.loginfo("%s: Pick up failed!", self.node_name)
+
+                    rospy.sleep(1)
 
                 except rospy.ServiceException as e:
                     print("Service call to move_head server failed: %s"%e)
 
-            # Error handling
-            if self.state == 5:
-                rospy.logerr("%s: State machine failed. Check your code and try again!", self.node_name)
-                return
+
+            # State 6:  Navigate to place pose
+            if self.state == 6:
+                self.prev_state = self.state
+                
+                if is_reading_table_pose:
+                    target_pose = GetModelPose("table_3_clone")
+                    target_pose.header.frame_id = "map"
+                    target_pose.pose.position.y -= 0.7
+                else:
+                    target_pose = rospy.wait_for_message(self.place_pose_topic_ns, PoseStamped, 5)
+                success = self.navigate(target_pose)
+                
+                # next state
+                self.state = 7 if success else -1
+                rospy.sleep(1)
+
+
+            # State 7:  Place service
+            if self.state == 7:
+                try:
+                    rospy.loginfo("%s: Place object", self.node_name)
+                    place_service = rospy.ServiceProxy(self.place_service_ns, SetBool)
+                    place_req = place_service()
+                    self.prev_state = self.state
+
+                    if place_req.success:
+                        self.state = 0
+                        rospy.loginfo("%s: Place succeeded!", self.node_name)
+                    else:
+                        self.state = 2
+                        rospy.loginfo("%s: Place failed!", self.node_name)
+
+                    rospy.sleep(1)
+
+                except rospy.ServiceException as e:
+                    print("Service call to move_head server failed: %s"%e)
 
         rospy.loginfo("%s: State machine finished!", self.node_name)
         return
-
-
-# import py_trees as pt, py_trees_ros as ptr
-
-# class BehaviourTree(ptr.trees.BehaviourTree):
-
-# 	def __init__(self):
-
-# 		rospy.loginfo("Initialising behaviour tree")
-
-# 		# go to door until at door
-# 		b0 = pt.composites.Selector(
-# 			name="Go to door fallback", 
-# 			children=[Counter(30, "At door?"), Go("Go to door!", 1, 0)]
-# 		)
-
-# 		# tuck the arm
-# 		b1 = TuckArm()
-
-# 		# go to table
-# 		b2 = pt.composites.Selector(
-# 			name="Go to table fallback",
-# 			children=[Counter(5, "At table?"), Go("Go to table!", 0, -1)]
-# 		)
-
-# 		# move to chair
-# 		b3 = pt.composites.Selector(
-# 			name="Go to chair fallback",
-# 			children=[Counter(13, "At chair?"), Go("Go to chair!", 1, 0)]
-# 		)
-
-# 		# lower head
-# 		b4 = LowerHead()
-
-# 		# become the tree
-# 		tree = pt.composites.Sequence(name="Main sequence", children=[b0, b1, b2, b3, b4])
-# 		super(BehaviourTree, self).__init__(tree)
-
-# 		# execute the behaviour tree
-# 		self.setup(timeout=10000)
-# 		while not rospy.is_shutdown(): self.tick_tock(1)
-
-
-# class Counter(pt.behaviour.Behaviour):
-
-# 	def __init__(self, n, name):
-
-# 		# counter
-# 		self.i = 0
-# 		self.n = n
-
-# 		# become a behaviour
-# 		super(Counter, self).__init__(name)
-
-# 	def update(self):
-
-# 		# count until n
-# 		while self.i <= self.n:
-
-# 			# increment count
-# 			self.i += 1
-
-# 			# return failure :(
-# 			return pt.common.Status.FAILURE
-
-# 		# succeed after counter done :)
-# 		return pt.common.Status.SUCCESS
-
-
-# class Go(pt.behaviour.Behaviour):
-
-# 	def __init__(self, name, linear, angular):
-
-# 		# action space
-# 		self.cmd_vel_top = rospy.get_param(rospy.get_name() + '/cmd_vel_topic')
-# 		self.cmd_vel_pub = rospy.Publisher(self.cmd_vel_top, Twist, queue_size=10)
-
-# 		# command
-# 		self.move_msg = Twist()
-# 		self.move_msg.linear.x = linear
-# 		self.move_msg.angular.z = angular
-
-# 		# become a behaviour
-# 		super(Go, self).__init__(name)
-
-# 	def update(self):
-
-# 		# send the message
-# 		rate = rospy.Rate(10)
-# 		self.cmd_vel_pub.publish(self.move_msg)
-# 		rate.sleep()
-
-# 		# tell the tree that you're running
-# 		return pt.common.Status.RUNNING
-
-
-# class TuckArm(pt.behaviour.Behaviour):
-
-# 	def __init__(self):
-
-# 		# Set up action client
-# 		self.play_motion_ac = SimpleActionClient("/play_motion", PlayMotionAction)
-
-# 		# personal goal setting
-# 		self.goal = PlayMotionGoal()
-# 		self.goal.motion_name = 'home'
-# 		self.goal.skip_planning = True
-
-# 		# execution checker
-# 		self.sent_goal = False
-# 		self.finished = False
-
-# 		# become a behaviour
-# 		super(TuckArm, self).__init__("Tuck arm!")
-
-# 	def update(self):
-
-# 		# already tucked the arm
-# 		if self.finished: 
-# 			return pt.common.Status.SUCCESS
-		
-# 		# command to tuck arm if haven't already
-# 		elif not self.sent_goal:
-
-# 			# send the goal
-# 			self.play_motion_ac.send_goal(self.goal)
-# 			self.sent_goal = True
-
-# 			# tell the tree you're running
-# 			return pt.common.Status.RUNNING
-
-# 		# if I was succesful! :)))))))))
-# 		elif self.play_motion_ac.get_result():
-
-# 			# than I'm finished!
-# 			self.finished = True
-# 			return pt.common.Status.SUCCESS
-
-# 		# if I'm still trying :|
-# 		else:
-# 			return pt.common.Status.RUNNING
-		
-
-
-# class LowerHead(pt.behaviour.Behaviour):
-
-# 	def __init__(self):
-
-# 		# server
-# 		mv_head_srv_nm = rospy.get_param(rospy.get_name() + '/move_head_srv')
-# 		self.move_head_srv = rospy.ServiceProxy(mv_head_srv_nm, MoveHead)
-# 		rospy.wait_for_service(mv_head_srv_nm, timeout=30)
-
-# 		# execution checker
-# 		self.tried = False
-# 		self.tucked = False
-
-# 		# become a behaviour
-# 		super(LowerHead, self).__init__("Lower head!")
-
-# 	def update(self):
-
-# 		# try to tuck head if haven't already
-# 		if not self.tried:
-
-# 			# command
-# 			self.move_head_req = self.move_head_srv("down")
-# 			self.tried = True
-
-# 			# tell the tree you're running
-# 			return pt.common.Status.RUNNING
-
-# 		# react to outcome
-# 		else: return pt.common.Status.SUCCESS if self.move_head_req.success else pt.common.Status.FAILURE
-
 
 	
 
@@ -326,7 +333,6 @@ if __name__ == "__main__":
 
 	rospy.init_node('main_state_machine')
 	try:
-		#StateMachine()
 		StateMachine()
 	except rospy.ROSInterruptException:
 		pass

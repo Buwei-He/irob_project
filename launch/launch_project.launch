@@ -3,12 +3,12 @@
 
   <!-- ROS PARAMETERS -->
   <!-- Initial robot pose in Gazebo: change for levels A, C or E (F for demo)-->
-  <arg name="student_level"         default="A"/>
+  <arg name="student_level"         default="E"/>
   <arg name="run"                   default="true"/>
 
   <!-- System level -->
   <arg name="namespace_tiago"     default="/"/>
-  <arg name="namespace_project"   default="irob_final"/>
+  <arg name="namespace_project"   default="robotics_intro"/>
   <arg name="public_sim"          default="True"/>
   <arg name="sim_sufix"           value="_public_sim" if="$(arg public_sim)"/>
   <arg name="sim_sufix"           value=""  unless="$(arg public_sim)"/>
@@ -18,7 +18,8 @@
 
   <!-- Navigation -->
   <arg name="provide_map"     default="true"/>
-  <arg name="localization"    default="amcl"/>
+  <arg name="localization"    default="fake"/>
+  <!-- <arg name="localization"    default="amcl"/> -->
   <arg name="map_path"        default="$(find robotics_project)/pal/tiago_maps/config"/>
   <arg name="global_planner"  default="navfn"/>
   <arg name="local_planner"   default="eband"/>
@@ -95,9 +96,8 @@
 
   <group ns="$(arg namespace_project)">
     <!-- Mission planner -->
-    <!-- <node pkg="robotics_project" type="state_machine_test.py" name="logic_state_machine" output="screen" if="$(arg run)"> -->
+    <node pkg="robotics_project" type="sm_students.py" name="logic_state_machine" output="screen" if="$(arg run)">
     <!-- <node pkg="robotics_project" type="bt_students.py" name="bt_tree" output="screen" if="$(arg run)"> -->
-    <node pkg="robotics_project" type="behaviour_tree.py" name="bt_tree" output="screen" if="$(arg run)">
       <param name="robot_pose_topic"    value="$(arg robot_pose_topic)"/>
       <param name="clear_costmaps_srv"  value="$(arg clear_costmaps_srv)"/>
       <param name="pick_srv"            value="$(arg pick_srv)"/>
