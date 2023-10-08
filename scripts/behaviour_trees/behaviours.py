@@ -107,7 +107,7 @@ class GoTo(pt.behaviour.Behaviour):
         #     amcl_cov = amcl_pose.pose.covariance
         #     amcl_sum = np.sum(np.abs(amcl_cov))
         #     is_increasing = self.prev_amcl_sum < amcl_sum
-        #     is_decreasing = self.prev_amcl_sum * 0.9 > amcl_sum 
+        #     is_decreasing = self.prev_amcl_sum * 0.95 > amcl_sum 
         #     rospy.loginfo("prev.: %.4f; curr.: %.4f; +: %s", self.prev_amcl_sum, amcl_sum, str(self.amcl_cnt))
 
         #     self.prev_amcl_sum = amcl_sum
@@ -148,9 +148,9 @@ class GoTo(pt.behaviour.Behaviour):
         use_table_pose = pt.Blackboard().get("get_table_pose")
         if use_table_pose and self.target_name is not "pick":
             table_name = pt.Blackboard().get("table_name")
-            table_pose = GetModelPose(table_name)
-            target_pose.pose = table_pose.pose
-            target_pose.pose.position.y -= 0.7
+            target_pose = GetModelPose(table_name)
+            target_pose.header.frame_id = "map"
+            target_pose.pose.position.y -= 0.95
 
         self.goal.target_pose = target_pose
         rospy.loginfo(target_pose)
@@ -334,7 +334,7 @@ class LookForAruco(pt.behaviour.Behaviour):
 
     def update(self):
         aruco_pose_msg = pt.Blackboard().get("aruco_pose")
-        if type(aruco_pose_msg) is PoseStamped and aruco_pose_msg.pose.position.z > 0:
+        if type(aruco_pose_msg) is PoseStamped and aruco_pose_msg.pose.position.z > 0.8:
             rospy.loginfo("%s: Success!", self.name)
             return pt.common.Status.SUCCESS
 
@@ -510,6 +510,8 @@ class ResetRobot(pt.behaviour.Behaviour):
         rospy.loginfo("Initialising robot status...")
 
         pt.Blackboard().set("retry_tasks", False)
+
+        # reset aruco cube
         ResetAruco()
 
         # server
@@ -517,7 +519,7 @@ class ResetRobot(pt.behaviour.Behaviour):
         self.move_head_srv = rospy.ServiceProxy(mv_head_srv_nm, MoveHead)
         rospy.wait_for_service(mv_head_srv_nm, timeout=1)
 
-        self.move_head_req = self.move_head_srv("down")
+        self.move_head_req = self.move_head_srv("up")
         
         return super().initialise()
     

@@ -30,12 +30,15 @@ is_reading_table_pose = True
 class StateMachine(object):
     """
     Custom state machine for mobile robot:
-    State -1: Error message
-    State 0: Move the robot "manually" to door
-    State 1: Tuck arm 
-    State 2: Move the robot "manually" to chair
-    State 3: Lower robot head service
-    State 4: (Invalid)
+    State -1:   Error
+    State 0:    Exit
+    State 1:    Tuck arm 
+    State 2:    Navigate to pick pose
+    State 3:    Lower robot head
+    State 4:    Detect aruco cube (pass for given aruco pose)
+    State 5:    Pick up
+    State 6:    Navigate to place pose
+    State 7:    Place service
     
     """
     def __init__(self):
@@ -96,7 +99,6 @@ class StateMachine(object):
         rospy.sleep(3)
         self.check_states()
 
-
     # callback
 
     def aruco_pose_callback(self, aruco_pose_msg):
@@ -106,6 +108,7 @@ class StateMachine(object):
             self.aruco_pose_received = True
         return valid
 
+    # function
 
     def navigate(self, target_pose):
         try:
@@ -242,7 +245,6 @@ class StateMachine(object):
 
                 except rospy.ServiceException as e:
                     print("Service call to move_head server failed: %s"%e)
-                    
 
             # State 4:  Detect aruco cube
             if self.state == 4:
@@ -265,7 +267,6 @@ class StateMachine(object):
                 self.state = 5
                 rospy.sleep(1)
 
-
             # State 5:  Pick up service
             if self.state == 5:
                 try:
@@ -286,7 +287,6 @@ class StateMachine(object):
                 except rospy.ServiceException as e:
                     print("Service call to move_head server failed: %s"%e)
 
-
             # State 6:  Navigate to place pose
             if self.state == 6:
                 self.prev_state = self.state
@@ -294,7 +294,7 @@ class StateMachine(object):
                 if is_reading_table_pose:
                     target_pose = GetModelPose("table_3_clone")
                     target_pose.header.frame_id = "map"
-                    target_pose.pose.position.y -= 0.7
+                    target_pose.pose.position.y -= 0.95
                 else:
                     target_pose = rospy.wait_for_message(self.place_pose_topic_ns, PoseStamped, 5)
                 success = self.navigate(target_pose)
@@ -302,7 +302,6 @@ class StateMachine(object):
                 # next state
                 self.state = 7 if success else -1
                 rospy.sleep(1)
-
 
             # State 7:  Place service
             if self.state == 7:
