@@ -8,17 +8,17 @@
 
   <!-- System level -->
   <arg name="namespace_tiago"     default="/"/>
-  <arg name="namespace_project"   default="robotics_intro"/>
+  <arg name="namespace_project"   default="irob_final"/>
   <arg name="public_sim"          default="True"/>
   <arg name="sim_sufix"           value="_public_sim" if="$(arg public_sim)"/>
   <arg name="sim_sufix"           value=""  unless="$(arg public_sim)"/>
-  <arg name="robot_namespace"     default=""/>
+  <arg name="robot_namespace"     default="robot"/>
   <env name="PAL_HOST"            value="tiago" />
   <env name="LC_NUMERIC"          value="C" />
 
   <!-- Navigation -->
   <arg name="provide_map"     default="true"/>
-  <arg name="localization"    default="fake"/>
+  <arg name="localization"    default="amcl"/>
   <arg name="map_path"        default="$(find robotics_project)/pal/tiago_maps/config"/>
   <arg name="global_planner"  default="navfn"/>
   <arg name="local_planner"   default="eband"/>
@@ -33,14 +33,15 @@
   <arg name="multiple"    default="false"/>
 
   <!-- Custom -->
-  <arg name="global_loc_srv"      default="/amcl_pose"/>
-  <!-- <arg name="global_loc_srv"      default="/global_localization"/> -->
-  <arg name="clear_costmaps_srv"  default="/clear_octomap"/>
+  <arg name="robot_pose_topic"    default="/amcl_pose"/>
+  <arg name="clear_costmaps_srv"  default="/none"/>
   <arg name="pick_srv"            default="/$(arg namespace_project)/pick_service"/>
   <arg name="place_srv"           default="/$(arg namespace_project)/place_service"/>
   <arg name="move_head_srv"       default="/$(arg namespace_project)/move_head_gui"/>
+  <arg name="reset_aruco_srv"     default="/gazebo/set_model_state"/>
   <arg name="pick_pose_topic"     default="/$(arg namespace_project)/pick_pose_topic"/>
   <arg name="place_pose_topic"    default="/$(arg namespace_project)/place_pose_topic"/>
+  <arg name="joint_states_topic"  default="/joint_states"/>
   <arg name="pickup_marker_pose"  default="/$(arg namespace_project)/pickup_marker_pose"/>
   <arg name="place_marker_pose"   default="/$(arg namespace_project)/place_marker_pose"/>
   <arg name="aruco_pose_topic"    default="/$(arg namespace_project)/aruco_single/pose"/>
@@ -65,7 +66,7 @@
     </node> -->
 
     <!-- Project RGBD point cloud to laser-scan -->
-    <node pkg="depthimage_to_laserscan" type="depthimage_to_laserscan" name="depthimage_to_laserscan">
+    <!-- <node pkg="depthimage_to_laserscan" type="depthimage_to_laserscan" name="depthimage_to_laserscan">
       <remap from="image" to="xtion/depth_registered/image_raw"/>
       <remap from="scan"  to="rgbd_scan"/>
       <param name="scan_height" value="400"/>
@@ -73,7 +74,7 @@
       <param name="range_min" value="0.15"/>
       <param name="range_max" value="10.0"/>
       <param name="output_frame_id" value="base_footprint"/>
-    </node>
+    </node> -->
 
     <!-- AMCL Localization -->
     <include file="$(find tiago_2dnav)/launch/localization.launch">
@@ -94,29 +95,33 @@
 
   <group ns="$(arg namespace_project)">
     <!-- Mission planner -->
-    <node pkg="robotics_project" type="state_machine_test.py" name="logic_state_machine" output="screen" if="$(arg run)">
-    <!-- <node pkg="robotics_project" type="sm_students.py" name="logic_state_machine" output="screen" if="$(arg run)"> -->
-      <param name="global_loc_srv"      value="$(arg global_loc_srv)"/>
+    <!-- <node pkg="robotics_project" type="state_machine_test.py" name="logic_state_machine" output="screen" if="$(arg run)"> -->
+    <!-- <node pkg="robotics_project" type="bt_students.py" name="bt_tree" output="screen" if="$(arg run)"> -->
+    <node pkg="robotics_project" type="behaviour_tree.py" name="bt_tree" output="screen" if="$(arg run)">
+      <param name="robot_pose_topic"    value="$(arg robot_pose_topic)"/>
       <param name="clear_costmaps_srv"  value="$(arg clear_costmaps_srv)"/>
       <param name="pick_srv"            value="$(arg pick_srv)"/>
       <param name="place_srv"           value="$(arg place_srv)"/>
+      <param name="reset_aruco_srv"     value="$(arg reset_aruco_srv)"/>
       <param name="nav_goal_topic"      value=""/>
       <param name="cmd_vel_topic"       value="/key_vel"/>
       <param name="move_base_frame"     value="$(arg move_base_frame)"/>
       <param name="pick_pose_topic"     value="$(arg pick_pose_topic)"/>
       <param name="place_pose_topic"    value="$(arg place_pose_topic)"/>
       <param name="aruco_pose_topic"    value="$(arg aruco_pose_topic)"/>
+      <param name="joint_states_topic"  value="$(arg joint_states_topic)"/>
       <param name="cube_pose"           value="0.50306828716, 0.0245718046511, 0.915538062216, 0.0144467629456, 0.706141958739, 0.707257659069, -0.0306827123383"/>
       <param name="robot_base_frame"    value="$(arg move_base_frame)" />
       <param name="move_head_srv"       value="$(arg move_head_srv)"/>
-      <param name="amcl_estimate"       value="" />
+      <param name="global_loc_srv"       value="/global_localization" />
       <param name="move_base_feedback"  value="" />
     </node>
 
     <!-- Goal robot poses for navigation -->
     <node pkg="robotics_project" type="poses_pub.py" name="poses_publisher" output="screen">
       <param name="pick_pose"         value="-1.1480, -6.1, -0.001, 0.0, 0.0, -0.709307863674, 0.70489882574"/>
-      <param name="place_pose"        value="2.6009, -1.7615, 0.0, 0.0, 0.0, 0.0, 1"/>
+      <!-- <param name="place_pose"        value="2.7509, -1.7615, 0.0, 0.0, 0.0, 0.0, 1"/> -->
+      <param name="place_pose"         value="-1.1480, -5.3, -0.001, 0.0, 0.0, 0.707, 0.707"/>
       <param name="pick_pose_topic"   value="$(arg pick_pose_topic)"/>
       <param name="place_pose_topic"  value="$(arg place_pose_topic)"/>
       <param name="map_frame"         value="$(arg map_frame)"/>
