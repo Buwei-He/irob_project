@@ -118,14 +118,14 @@ def TaskC():
 
     clean_pose = CleanArucoPose()
 
+    clean_pose_cp = CleanArucoPose()
+
     arm_pickup = MoveRobotArm("pick")
 
     move_to_place = GoTo("place")
 
     arm_place = MoveRobotArm("place")
 
-    # cleanup = pt.composites.Parallel(name="Cleanup", policy=pt.common.ParallelPolicy.SUCCESS_ON_ONE)
-    
     root.add_children([topics2bb, priorities])
     topics2bb.add_children([robot_pose_to_bb, pick_pose_to_bb, place_pose_to_bb, aruco_to_bb])
     priorities.add_children([tasks])
@@ -133,7 +133,7 @@ def TaskC():
     preempt.add_children([pick_and_place_tasks])
     pick_tasks.add_children([move_to_pickup, head_down, clean_pose, find_aruco, arm_pickup, pause])
     place_tasks.add_children([move_to_place, arm_place, pause])
-    final_check.add_children([clean_pose, pause, is_placed])
+    final_check.add_children([clean_pose_cp, pause, is_placed])
     pick_and_place_tasks.add_children([reset_robot, reverse, tuck_arm, pick_tasks, place_tasks, final_check])
     exit_fallback.add_children([is_safe, exit_program])
 
@@ -152,13 +152,14 @@ def TaskA():
 
     # topics2bb = pt.composites.Sequence("Topics2BB")
     topics2bb = pt.composites.Parallel("Topics2BB")
+
     pt.Blackboard().set(name="retry_tasks", value=True)
     pt.Blackboard().set(name="vel_pub_rate", value=10)
     pt.Blackboard().set(name="get_table_pose", value=False)
     pt.Blackboard().set(name="table_name", value="table_3_clone")
     pt.Blackboard().set(name="aruco_cube_counter", value=0)
 
-    joints_to_bb = ptr.subscribers.ToBlackboard(name="joint_states",
+    joints_to_bb = pt.meta.success_is_running(ptr.subscribers.ToBlackboard)(name="joint_states",
                                             topic_name=rospy.get_param(rospy.get_name() + '/joint_states_topic'),
                                             topic_type=JointState,
                                             blackboard_variables={"joint_states": None},
@@ -225,19 +226,19 @@ def TaskA():
 
     place_tasks = pt.composites.Sequence(name="Place tasks")
 
-    exit_fallback = pt.composites.Selector(name="Exit program")
+    final_check = pt.composites.Sequence(name="Final check")
 
-    retry_tasks = RetryTasks()
+    exit_fallback = pt.composites.Selector(name="Exit program")
 
     exit_program = ExitProgram()
 
     reset_robot = ResetRobot()
 
-    pause = pt.timers.Timer("Pause", duration=1.0)
+    pause = pt.timers.Timer("Pause", duration=3.0)
     
     tuck_arm = TuckArm()
 
-    reverse = Go("Reverse", linear=-0.05, angular=0, max_ticks=30)
+    reverse = Go("Reverse", linear=-0.1, angular=0, max_ticks=30)
 
     localize = Relocalise(linear=0.1, angular=0.8, max_ticks=100)
 
@@ -247,7 +248,7 @@ def TaskA():
     move_to_pickup = GoTo("pick")
 
     # lower head
-    
+
     head_down = pt.composites.Sequence(
         name="Lower robot head",               
         children=[MoveRobotHead("down"), pause]
@@ -258,35 +259,39 @@ def TaskA():
         children=[LookForAruco(), Go("Spin to find aruco", linear=0, angular=0.4, max_ticks=150)]
     )
 
+    is_placed = pt.composites.Selector(
+        name="Find aruco cube fallback",
+        children=[LookForAruco(), RetryTasks()]
+    )
+
+    clean_pose = CleanArucoPose()
+
+    clean_pose_cp = CleanArucoPose()
+
     arm_pickup = MoveRobotArm("pick")
 
-    move_to_place = pt.meta.success_is_running(pt.composites.Selector)(
-        name="Move to place pose fallback",
-        children=[
-            GoTo("place"),
-            pt.composites.Selector(name="Check aruco fallback", children=([CheckAruco(), RetryTasks()])),
-            ]
-    )
+    move_to_place = GoTo("place")
 
     arm_place = MoveRobotArm("place")
 
-    detect_kidnap = DetectKidnap()
-
-    # cleanup = pt.composites.Parallel(name="Cleanup", policy=pt.common.ParallelPolicy.SUCCESS_ON_ONE)
-    
+    detect_kidnap = is_placed = pt.composites.Selector(
+        name="Detect kidnap fallback",
+        children=[pt.meta.inverter(DetectKidnap()), localize_cp]
+    )
 
     root.add_children([topics2bb, priorities])
     topics2bb.add_children([scan_to_bb, pick_pose_to_bb, place_pose_to_bb, robot_pose_to_bb, aruco_to_bb, joints_to_bb])
     priorities.add_children([tasks])
     tasks.add_children([initial_tasks, exit_fallback, preempt])
-    preempt.add_children([tasks_cp])
+    preempt.add_children([is_safe_cp, tasks_cp])
     tasks_cp.add_children([pick_and_place_tasks, detect_kidnap])
     initial_tasks.add_children([localize, tuck_arm])
-    pick_tasks.add_children([move_to_pickup, head_down, find_aruco, arm_pickup])
-    place_tasks.add_children([move_to_place, arm_place])
-    pick_and_place_tasks.add_children([reset_robot, pick_tasks, place_tasks, retry_tasks])
+    pick_tasks.add_children([move_to_pickup, head_down, clean_pose, find_aruco, arm_pickup, pause])
+    place_tasks.add_children([move_to_place, arm_place, pause])
+    final_check.add_children([clean_pose_cp, pause, is_placed])
+    pick_and_place_tasks.add_children([reset_robot, pick_tasks, place_tasks, final_check])
     exit_fallback.add_children([is_safe, exit_program])
-    # cleanup.add_children([pause])
+
     return root
 
 
@@ -297,7 +302,8 @@ def shutdown(behaviour_tree):
 def main():
     import functools, sys
     rospy.init_node("behaviour_tree")
-    root = TaskC()
+    # root = TaskC()
+    root = TaskA()
     behaviour_tree = ptr.trees.BehaviourTree(root)
     rospy.on_shutdown(functools.partial(shutdown, behaviour_tree))
     if not behaviour_tree.setup(timeout=15):

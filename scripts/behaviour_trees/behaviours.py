@@ -591,7 +591,7 @@ class DetectKidnap(pt.behaviour.Behaviour):
 
 
     def get_yaw(self, q):
-        return np.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+        return np.arctan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
 
 
     def update(self):
@@ -603,26 +603,26 @@ class DetectKidnap(pt.behaviour.Behaviour):
         amcl_cov = amcl_pose.pose.covariance
 
         # get position of lidar (robot) in map frame
-        robot_x = amcl_pose.pose.position.x 
-        robot_y = amcl_pose.pose.position.y
-        robot_yaw = self.get_yaw(amcl_pose.pose.orientation)
+        robot_x = amcl_pose.pose.pose.position.x 
+        robot_y = amcl_pose.pose.pose.position.y
+        robot_yaw = self.get_yaw(amcl_pose.pose.pose.orientation)
 
         bearings = np.arange(
-            scan.angle_min,
-            scan.angle_min + (len(scan.ranges)) * scan.angle_increment,
-            scan.angle_increment,
+            scan_raw.angle_min,
+            scan_raw.angle_min + (len(scan_raw.ranges)) * scan_raw.angle_increment,
+            scan_raw.angle_increment,
         )
 
-        scan_ranges = np.clip(scan.ranges, scan.range_min, scan.range_max)
+        scan_ranges = np.clip(scan, scan_raw.range_min, scan_raw.range_max)
         
         lidar_x = scan_ranges * np.cos(bearings + robot_yaw) + robot_x
         lidar_y = scan_ranges * np.sin(bearings + robot_yaw) + robot_y
-        scan_tf = np.concatenate(np.sort(lidar_x), np.sort(lidar_y))
+        scan_tf = np.concatenate((np.sort(lidar_x), np.sort(lidar_y)))
 
         if self.prev_scan is not None and amcl_pose is not None:
             correlation = np.correlate(self.prev_scan, scan_tf)[0] * 0.0001
             amcl_sum = np.sum(np.abs(amcl_cov))
-            rospy.loginfo("1",correlation)
+            rospy.loginfo("correlation: %.4f, sum: %.4f", correlation, amcl_sum)
         
         self.prev_scan = scan_tf
         return pt.common.Status.RUNNING
