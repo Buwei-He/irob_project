@@ -107,7 +107,7 @@ class GoTo(pt.behaviour.Behaviour):
         #     amcl_cov = amcl_pose.pose.covariance
         #     amcl_sum = np.sum(np.abs(amcl_cov))
         #     is_increasing = self.prev_amcl_sum < amcl_sum
-        #     is_decreasing = self.prev_amcl_sum * 0.9 > amcl_sum 
+        #     is_decreasing = self.prev_amcl_sum * 0.95 > amcl_sum 
         #     rospy.loginfo("prev.: %.4f; curr.: %.4f; +: %s", self.prev_amcl_sum, amcl_sum, str(self.amcl_cnt))
 
         #     self.prev_amcl_sum = amcl_sum
@@ -146,11 +146,11 @@ class GoTo(pt.behaviour.Behaviour):
         
         target_pose = pt.Blackboard().get(self.target_name+"_pose")
         use_table_pose = pt.Blackboard().get("get_table_pose")
-        if use_table_pose and self.target_name is not "pick":
+        if use_table_pose and self.target_name != "pick":
             table_name = pt.Blackboard().get("table_name")
-            table_pose = GetModelPose(table_name)
-            target_pose.pose = table_pose.pose
-            target_pose.pose.position.y -= 0.7
+            target_pose = GetModelPose(table_name)
+            target_pose.header.frame_id = "map"
+            target_pose.pose.position.y -= 0.95
 
         self.goal.target_pose = target_pose
         rospy.loginfo(target_pose)
@@ -209,6 +209,11 @@ class TuckArm(pt.behaviour.Behaviour):
         # if I'm still trying :|
         else:
             return pt.common.Status.RUNNING
+        
+    def initialise(self):
+        self.finished = False
+        self.sent_goal = False
+        return super().initialise()
 
 
 class MoveRobotHead(pt.behaviour.Behaviour):
@@ -334,7 +339,8 @@ class LookForAruco(pt.behaviour.Behaviour):
 
     def update(self):
         aruco_pose_msg = pt.Blackboard().get("aruco_pose")
-        if type(aruco_pose_msg) is PoseStamped and aruco_pose_msg.pose.position.z > 0:
+        aruco_pose_seq = pt.Blackboard().get("aruco_pose_seq")
+        if type(aruco_pose_msg) is PoseStamped and aruco_pose_msg.header.seq > aruco_pose_seq:
             rospy.loginfo("%s: Success!", self.name)
             return pt.common.Status.SUCCESS
 
@@ -344,13 +350,32 @@ class LookForAruco(pt.behaviour.Behaviour):
 
 
     def initialise(self):
-        rospy.loginfo("Initialising detect aruco behaviour.")
-
+        rospy.loginfo("Initialising %s behaviour.", self.name)
         return super().initialise()
 
 
     def terminate(self, new_status):
         return super().terminate(new_status)
+
+
+class CleanArucoPose(pt.behaviour.Behaviour):
+
+    def __init__(self):
+        self.name = "Clean aruco pose"
+        # become a behaviour
+        super(CleanArucoPose, self).__init__(self.name)
+
+    def initialise(self):
+        rospy.loginfo("Initialising %s behaviour.", self.name)
+        aruco_pose_msg = pt.Blackboard().get("aruco_pose")
+        if type(aruco_pose_msg) is PoseStamped:
+            pt.Blackboard().set("aruco_pose_seq", aruco_pose_msg.header.seq)
+        else: 
+            pt.Blackboard().set("aruco_pose_seq", -1)
+        return super().initialise()
+    
+    def update(self):
+        return pt.common.Status.SUCCESS
 
 
 class CheckAruco(pt.behaviour.Behaviour):
@@ -510,6 +535,8 @@ class ResetRobot(pt.behaviour.Behaviour):
         rospy.loginfo("Initialising robot status...")
 
         pt.Blackboard().set("retry_tasks", False)
+
+        # reset aruco cube
         ResetAruco()
 
         # server
@@ -517,7 +544,7 @@ class ResetRobot(pt.behaviour.Behaviour):
         self.move_head_srv = rospy.ServiceProxy(mv_head_srv_nm, MoveHead)
         rospy.wait_for_service(mv_head_srv_nm, timeout=1)
 
-        self.move_head_req = self.move_head_srv("down")
+        self.move_head_req = self.move_head_srv("up")
         
         return super().initialise()
     
@@ -564,7 +591,7 @@ class DetectKidnap(pt.behaviour.Behaviour):
 
 
     def get_yaw(self, q):
-        return np.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+        return np.arctan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
 
 
     def update(self):
@@ -576,26 +603,26 @@ class DetectKidnap(pt.behaviour.Behaviour):
         amcl_cov = amcl_pose.pose.covariance
 
         # get position of lidar (robot) in map frame
-        robot_x = amcl_pose.pose.position.x 
-        robot_y = amcl_pose.pose.position.y
-        robot_yaw = self.get_yaw(amcl_pose.pose.orientation)
+        robot_x = amcl_pose.pose.pose.position.x 
+        robot_y = amcl_pose.pose.pose.position.y
+        robot_yaw = self.get_yaw(amcl_pose.pose.pose.orientation)
 
         bearings = np.arange(
-            scan.angle_min,
-            scan.angle_min + (len(scan.ranges)) * scan.angle_increment,
-            scan.angle_increment,
+            scan_raw.angle_min,
+            scan_raw.angle_min + (len(scan_raw.ranges)) * scan_raw.angle_increment,
+            scan_raw.angle_increment,
         )
 
-        scan_ranges = np.clip(scan.ranges, scan.range_min, scan.range_max)
+        scan_ranges = np.clip(scan, scan_raw.range_min, scan_raw.range_max)
         
         lidar_x = scan_ranges * np.cos(bearings + robot_yaw) + robot_x
         lidar_y = scan_ranges * np.sin(bearings + robot_yaw) + robot_y
-        scan_tf = np.concatenate(np.sort(lidar_x), np.sort(lidar_y))
+        scan_tf = np.concatenate((np.sort(lidar_x), np.sort(lidar_y)))
 
         if self.prev_scan is not None and amcl_pose is not None:
             correlation = np.correlate(self.prev_scan, scan_tf)[0] * 0.0001
             amcl_sum = np.sum(np.abs(amcl_cov))
-            rospy.loginfo("1",correlation)
+            rospy.loginfo("correlation: %.4f, sum: %.4f", correlation, amcl_sum)
         
         self.prev_scan = scan_tf
         return pt.common.Status.RUNNING
