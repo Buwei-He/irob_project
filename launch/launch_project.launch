@@ -122,8 +122,8 @@
     <!-- Goal robot poses for navigation -->
     <node pkg="robotics_project" type="poses_pub.py" name="poses_publisher" output="screen">
       <param name="pick_pose"         value="-1.1480, -6.1, -0.001, 0.0, 0.0, -0.709307863674, 0.70489882574"/>
-      <!-- <param name="place_pose"        value="2.7509, -1.7615, 0.0, 0.0, 0.0, 0.0, 1"/> -->
-      <param name="place_pose"         value="-1.1480, -5.3, -0.001, 0.0, 0.0, 0.707, 0.707"/>
+      <param name="place_pose"        value="2.7509, -1.7615, 0.0, 0.0, 0.0, 0.0, 1"/>
+      <!-- <param name="place_pose"         value="-1.1480, -5.3, -0.001, 0.0, 0.0, 0.707, 0.707"/> -->
       <param name="pick_pose_topic"   value="$(arg pick_pose_topic)"/>
       <param name="place_pose_topic"  value="$(arg place_pose_topic)"/>
       <param name="map_frame"         value="$(arg map_frame)"/>

@@ -11,6 +11,7 @@ from play_motion_msgs.msg import PlayMotionAction, PlayMotionGoal
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from sensor_msgs.msg import JointState, LaserScan
 from robotics_project.srv import MoveHead, MoveHeadRequest, MoveHeadResponse
+from std_msgs.msg import Bool
 from gazebo_utils import *
 
 
@@ -121,7 +122,7 @@ class GoTo(pt.behaviour.Behaviour):
         #             self.global_loc_req = self.global_loc_service()
         #             self.prev_amcl_sum = 100
 
-        #             amcl_pose = pt.Blackboard().set("retry_tasks", True)
+        #             amcl_pose = pt.Blackboard().set("retry", True)
         #             self.move_base_ac.cancel_all_goals()
         #             return pt.common.Status.FAILURE
         #     elif is_decreasing:
@@ -350,7 +351,7 @@ class LookForAruco(pt.behaviour.Behaviour):
 
 
     def initialise(self):
-        rospy.loginfo("Initialising %s behaviour.", self.name)
+        # rospy.loginfo("Initialising %s behaviour.", self.name)
         return super().initialise()
 
 
@@ -418,7 +419,7 @@ class CheckAruco(pt.behaviour.Behaviour):
             rospy.loginfo("Aruco cube is missing!")
             rospy.loginfo("Position: %0.2f, %0.2f", p_left, p_right)
             rospy.loginfo("Effort: %0.2f, %0.2f", f_left, f_right)
-            pt.Blackboard().set("retry_tasks", True)
+            pt.Blackboard().set("retry", True)
             # tell the tree that you're running
             rospy.loginfo("%s: Failed!", self.name)
             return pt.common.Status.SUCCESS
@@ -455,7 +456,7 @@ class Relocalise(pt.behaviour.Behaviour):
 
         self.ticks = 0
         self.max_ticks = max_ticks
-        self.max_cov = 0.01
+        self.max_cov = 0.1
 
         # become a behaviour
         super(Relocalise, self).__init__(self.name)
@@ -534,7 +535,7 @@ class ResetRobot(pt.behaviour.Behaviour):
     def initialise(self):
         rospy.loginfo("Initialising robot status...")
 
-        pt.Blackboard().set("retry_tasks", False)
+        pt.Blackboard().set("retry", False)
 
         # reset aruco cube
         ResetAruco()
@@ -552,7 +553,7 @@ class ResetRobot(pt.behaviour.Behaviour):
         return super().terminate(new_status)
 
 
-class RetryTasks(pt.behaviour.Behaviour):
+class SetRetrySig(pt.behaviour.Behaviour):
 
     """
     Clear both local and global cost map.
@@ -562,14 +563,17 @@ class RetryTasks(pt.behaviour.Behaviour):
 
     def __init__(self):
 
-        self.name = "Retry tasks"
-        
+        self.name = "Retry"
+        self.pub = rospy.Publisher(name="/retry", data_class=Bool, queue_size=1)
+        self.msg = Bool()
+        self.msg.data = True
         # become a behaviour
-        super(RetryTasks, self).__init__(self.name)
+        super(SetRetrySig, self).__init__(self.name)
 
 
     def update(self):
-        pt.Blackboard().set("retry_tasks", True)
+        # pt.Blackboard().set("retry", True)
+        self.pub.publish(self.msg)
         return pt.common.Status.SUCCESS
 
 
@@ -584,7 +588,9 @@ class DetectKidnap(pt.behaviour.Behaviour):
     def __init__(self):
 
         self.name = "Detect kidnap"
-        self.prev_scan = None
+        self.prev_scan : LaserScan = None
+        self.prev_pose : PoseWithCovarianceStamped = None
+        self.tick_counter = 0
         
         # become a behaviour
         super(DetectKidnap, self).__init__(self.name)
@@ -595,41 +601,81 @@ class DetectKidnap(pt.behaviour.Behaviour):
 
 
     def update(self):
-        # activate = pt.Blackboard().get("scan")
-        scan_raw = pt.Blackboard().get("scan")
-        amcl_pose = pt.Blackboard().get("robot_pose")
-        
-        scan = np.array(scan_raw.ranges)
-        amcl_cov = amcl_pose.pose.covariance
+        curr_scan = pt.Blackboard().get("scan")
+        curr_pose = pt.Blackboard().get("robot_pose")
 
-        # get position of lidar (robot) in map frame
-        robot_x = amcl_pose.pose.pose.position.x 
-        robot_y = amcl_pose.pose.pose.position.y
-        robot_yaw = self.get_yaw(amcl_pose.pose.pose.orientation)
+        # rate 100hz
+        if self.tick_counter % 10 == 0:
+            if self.prev_scan is not None and curr_scan is not None\
+                and self.prev_pose is not None and curr_pose is not None:
+                prev_yaw = self.get_yaw(self.prev_pose.pose.pose.orientation)
+                curr_yaw = self.get_yaw(curr_pose.pose.pose.orientation)
+                diff_yaw = (curr_yaw - prev_yaw) % (2*np.pi)
+                diff_yaw_cnt = round(diff_yaw / curr_scan.angle_increment)
 
-        bearings = np.arange(
-            scan_raw.angle_min,
-            scan_raw.angle_min + (len(scan_raw.ranges)) * scan_raw.angle_increment,
-            scan_raw.angle_increment,
-        )
+                # curr_cov = curr_pose.pose.covariance
+                # rospy.loginfo("cnt/diff: %d/%.3f", diff_yaw_cnt, diff_yaw)
 
-        scan_ranges = np.clip(scan, scan_raw.range_min, scan_raw.range_max)
-        
-        lidar_x = scan_ranges * np.cos(bearings + robot_yaw) + robot_x
-        lidar_y = scan_ranges * np.sin(bearings + robot_yaw) + robot_y
-        scan_tf = np.concatenate((np.sort(lidar_x), np.sort(lidar_y)))
+                # check length to make sure overlapping part exists; or skip (rotate speed too fast)
+                # if abs(diff_yaw_cnt) < 0.8 * len(self.prev_scan.ranges):
 
-        if self.prev_scan is not None and amcl_pose is not None:
-            correlation = np.correlate(self.prev_scan, scan_tf)[0] * 0.0001
-            amcl_sum = np.sum(np.abs(amcl_cov))
-            rospy.loginfo("correlation: %.4f, sum: %.4f", correlation, amcl_sum)
-        
-        self.prev_scan = scan_tf
+                #     if diff_yaw > 0:
+                #         prev_ranges = self.prev_scan.ranges[:-diff_yaw_cnt]
+                #         curr_ranges = curr_scan.ranges[diff_yaw_cnt:]
+                #     elif diff_yaw < 0:
+                #         prev_ranges = self.prev_scan.ranges[diff_yaw_cnt:]
+                #         curr_ranges = curr_scan.ranges[:-diff_yaw_cnt]
+                #     else:
+                #         prev_ranges = self.prev_scan.ranges
+                #         curr_ranges = curr_scan.ranges
+                #     curr_ranges = np.clip(curr_ranges, curr_scan.range_min, curr_scan.range_max)
+                #     prev_ranges = np.clip(prev_ranges, self.prev_scan.range_min, self.prev_scan.range_max)
+
+                #     # calculate cross-correlation of 2 scans
+                #     correlation = np.correlate(curr_ranges, prev_ranges)[0] / (np.linalg.norm(curr_ranges) * np.linalg.norm(prev_ranges))
+                #     rospy.loginfo("corr: %.3f", correlation)
+
+                # simple version
+                prev_ranges = self.prev_scan.ranges
+                curr_ranges = curr_scan.ranges
+                curr_ranges = np.clip(curr_ranges, curr_scan.range_min, curr_scan.range_max)
+                prev_ranges = np.clip(prev_ranges, self.prev_scan.range_min, self.prev_scan.range_max)
+
+                # calculate cross-correlation of 2 scans
+                correlation = np.correlate(curr_ranges, prev_ranges)[0] / (np.linalg.norm(curr_ranges) * np.linalg.norm(prev_ranges))
+                if correlation < 0.999:
+                    rospy.loginfo("corr: %.3f", correlation)
+                if correlation < 0.85:
+                    rospy.loginfo("Kidnap?")
+                    return pt.common.Status.SUCCESS
+
+            self.prev_pose = curr_pose
+            self.prev_scan = curr_scan
+        self.tick_counter += 1
         return pt.common.Status.RUNNING
+        # if self.prev_scan is not None and amcl_pose.header.seq is not None:
+        #     correlation = np.correlate(curr_ranges, prev_ranges)[0] / len(curr_ranges)
+        #     amcl_sum = np.sum(np.abs(amcl_cov))
+        #     diff = self.prev_pose - correlation
+        #     self.prev_scan = curr_scan
+        #     if diff > 0.01:
+        #         rospy.loginfo("corr: %.3f, diff: %.3f, cov: %.3f", correlation, diff, amcl_sum)
+        #         self.prev_pose = correlation 
+
+        #     if diff < -2 and amcl_sum < 0.2:
+        #         rospy.loginfo("Kidnap detected! correlation: %.4f", correlation)
+        #         return pt.common.Status.SUCCESS
+        #     else:
+        #         return pt.common.Status.RUNNING
+        # else:
+        #     self.prev_scan = scan_tf
+        #     return pt.common.Status.RUNNING
     
 
     def initialise(self):
         self.prev_scan = None
+        self.prev_pose = None
+        self.tick_counter = 0
         return super().initialise()
     
 
@@ -648,6 +694,6 @@ class ExitProgram(pt.behaviour.Behaviour):
 
 
     def update(self):
-        rospy.loginfo(" ------ End of mission! ------ ")
+        rospy.loginfo(" --- End of mission! --- ")
         exit()
 

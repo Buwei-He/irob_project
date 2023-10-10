@@ -27,7 +27,7 @@ def TaskC():
     # topics2bb = pt.composites.Sequence("Topics2BB")
 
     topics2bb = pt.composites.Parallel("Topics2BB")
-    pt.Blackboard().set(name="retry_tasks", value=True)
+    pt.Blackboard().set(name="retry", value=True)
     pt.Blackboard().set(name="vel_pub_rate", value=10)
     pt.Blackboard().set(name="get_table_pose", value=False)
     pt.Blackboard().set(name="table_name", value="table_3_clone")
@@ -66,13 +66,13 @@ def TaskC():
     tasks = pt.composites.Sequence(name="Default tasks")
     is_safe = pt.blackboard.CheckBlackboardVariable(
         name="Retry?",
-        variable_name='retry_tasks',
+        variable_name='retry',
         expected_value=True
     )
     preempt = pt.composites.Selector(name="Preempt?")
     is_safe_cp = pt.meta.success_is_running(pt.blackboard.CheckBlackboardVariable)(
         name="Retry?",
-        variable_name='retry_tasks',
+        variable_name='retry',
         expected_value=True
     )
 
@@ -113,7 +113,7 @@ def TaskC():
 
     is_placed = pt.composites.Selector(
         name="Find aruco cube fallback",
-        children=[LookForAruco(), RetryTasks()]
+        children=[LookForAruco(), SetRetrySig()]
     )
 
     clean_pose = CleanArucoPose()
@@ -153,7 +153,7 @@ def TaskA():
     # topics2bb = pt.composites.Sequence("Topics2BB")
     topics2bb = pt.composites.Parallel("Topics2BB")
 
-    pt.Blackboard().set(name="retry_tasks", value=True)
+    # pt.Blackboard().set(name="retry", value=True)
     pt.Blackboard().set(name="vel_pub_rate", value=10)
     pt.Blackboard().set(name="get_table_pose", value=False)
     pt.Blackboard().set(name="table_name", value="table_3_clone")
@@ -200,19 +200,26 @@ def TaskA():
                                             blackboard_variables={"scan": None},
                                             clearing_policy=pt.common.ClearingPolicy.NEVER
                                             )
+    
+    retry_to_bb = ptr.subscribers.ToBlackboard(name="retry",
+                                            topic_name="/retry",
+                                            topic_type=Bool,
+                                            blackboard_variables={"retry": None},
+                                            initialise_variables={"retry": True}
+                                            )
 
     priorities = pt.composites.Selector("Priorities")
     
     tasks = pt.composites.Sequence(name="Default tasks")
     is_safe = pt.blackboard.CheckBlackboardVariable(
         name="Retry?",
-        variable_name='retry_tasks',
+        variable_name='retry',
         expected_value=True
     )
     preempt = pt.composites.Selector(name="Preempt?")
     is_safe_cp = pt.meta.success_is_running(pt.blackboard.CheckBlackboardVariable)(
         name="Retry?",
-        variable_name='retry_tasks',
+        variable_name='retry',
         expected_value=True
     )
 
@@ -240,9 +247,9 @@ def TaskA():
 
     reverse = Go("Reverse", linear=-0.1, angular=0, max_ticks=30)
 
-    localize = Relocalise(linear=0.1, angular=0.8, max_ticks=100)
+    localize = Relocalise(linear=0, angular=0.3, max_ticks=200)
 
-    localize_cp = Relocalise(linear=0.1, angular=0.8, max_ticks=100)
+    localize_cp = Relocalise(linear=0, angular=0.3, max_ticks=200)
 
     # move to chair
     move_to_pickup = GoTo("pick")
@@ -256,12 +263,12 @@ def TaskA():
 
     find_aruco = pt.composites.Selector(
         name="Find aruco cube fallback",
-        children=[LookForAruco(), Go("Spin to find aruco", linear=0, angular=0.4, max_ticks=150)]
+        children=[LookForAruco(), Go("Spin to find aruco", linear=0, angular=0.2, max_ticks=300)]
     )
 
     is_placed = pt.composites.Selector(
         name="Find aruco cube fallback",
-        children=[LookForAruco(), RetryTasks()]
+        children=[LookForAruco(), SetRetrySig()]
     )
 
     clean_pose = CleanArucoPose()
@@ -274,15 +281,17 @@ def TaskA():
 
     arm_place = MoveRobotArm("place")
 
-    detect_kidnap = is_placed = pt.composites.Selector(
+    detect_kidnap = pt.composites.Selector(
         name="Detect kidnap fallback",
-        children=[pt.meta.inverter(DetectKidnap()), localize_cp]
+        children=[pt.meta.inverter(DetectKidnap)(), localize_cp]
     )
 
+    retry = SetRetrySig()
+
     root.add_children([topics2bb, priorities])
-    topics2bb.add_children([scan_to_bb, pick_pose_to_bb, place_pose_to_bb, robot_pose_to_bb, aruco_to_bb, joints_to_bb])
+    topics2bb.add_children([retry_to_bb, scan_to_bb, pick_pose_to_bb, place_pose_to_bb, robot_pose_to_bb, aruco_to_bb, joints_to_bb])
     priorities.add_children([tasks])
-    tasks.add_children([initial_tasks, exit_fallback, preempt])
+    tasks.add_children([initial_tasks, exit_fallback, retry, preempt])
     preempt.add_children([is_safe_cp, tasks_cp])
     tasks_cp.add_children([pick_and_place_tasks, detect_kidnap])
     initial_tasks.add_children([localize, tuck_arm])
