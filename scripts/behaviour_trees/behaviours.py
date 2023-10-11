@@ -368,7 +368,6 @@ class CheckAruco(pt.behaviour.Behaviour):
         self.name = "Check aruco cube"
 
         # execution checker
-        self.max_ticks = 1000
         self.disp_threshold = 0.02
         self.force_threshold = 0.5
 
@@ -379,19 +378,12 @@ class CheckAruco(pt.behaviour.Behaviour):
     def update(self):
 
         states = pt.Blackboard().get("joint_states")
-        ticks = pt.Blackboard().get("aruco_cube_counter")
         p_left, p_right = states.position[7], states.position[8]
         f_left, f_right = states.effort[7], states.effort[8]
         form_closed = (p_left < self.disp_threshold) and (p_right < self.disp_threshold)
         force_reduced = (abs(f_left) < self.force_threshold) and (abs(f_right) < self.force_threshold)
 
         if form_closed and force_reduced:
-            ticks += 1
-        else:
-            ticks = 0
-        pt.Blackboard().set("aruco_cube_counter", ticks)
-
-        if not ticks < self.max_ticks:
             rospy.loginfo("Aruco cube is missing!")
             rospy.loginfo("Position: %0.2f, %0.2f", p_left, p_right)
             rospy.loginfo("Effort: %0.2f, %0.2f", f_left, f_right)
@@ -405,9 +397,7 @@ class CheckAruco(pt.behaviour.Behaviour):
 
 
     def initialise(self):
-        # rospy.loginfo("Initialising %s behaviour.", self.name)
-        self.ticks = 0
-        self.max_ticks = 1
+        rospy.loginfo("Initialising %s behaviour.", self.name)
         self.disp_threshold = 0.02
         self.force_threshold = 0.5
         return super().initialise()
@@ -432,7 +422,7 @@ class Relocalise(pt.behaviour.Behaviour):
 
         self.ticks = 0
         self.max_ticks = max_ticks
-        self.max_cov = 0.002
+        self.max_cov = 0.01
 
         # become a behaviour
         super(Relocalise, self).__init__(self.name)
@@ -458,9 +448,9 @@ class Relocalise(pt.behaviour.Behaviour):
             rospy.Rate(rate).sleep()
 
             # tell the tree that you're running
-            rospy.loginfo("running.")
+            # rospy.loginfo("running.")
             
-        rospy.loginfo("success.")
+        rospy.loginfo("%s: Success!", self.name)
         return pt.common.Status.SUCCESS
 
         
