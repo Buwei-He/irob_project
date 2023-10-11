@@ -110,7 +110,7 @@ class GoTo(pt.behaviour.Behaviour):
             self.move_base_ac.wait_for_result(rospy.Duration(100.0))
             self.tried = True
 
-        if self.move_base_ac.get_result() and self.move_base_ac.get_state() == 3:
+        if self.move_base_ac.get_result():
             rospy.loginfo("%s: Success!", self.name)
             return pt.common.Status.SUCCESS
 
