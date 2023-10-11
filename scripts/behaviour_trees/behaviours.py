@@ -104,39 +104,13 @@ class GoTo(pt.behaviour.Behaviour):
 
     def update(self):
 
-        # amcl_pose = pt.Blackboard().get("robot_pose")
-        # if amcl_pose is not None:
-        #     amcl_cov = amcl_pose.pose.covariance
-        #     amcl_sum = np.sum(np.abs(amcl_cov))
-        #     is_increasing = self.prev_amcl_sum < amcl_sum
-        #     is_decreasing = self.prev_amcl_sum * 0.95 > amcl_sum 
-        #     rospy.loginfo("prev.: %.4f; curr.: %.4f; +: %s", self.prev_amcl_sum, amcl_sum, str(self.amcl_cnt))
-
-        #     self.prev_amcl_sum = amcl_sum
-        #     if is_increasing:
-        #         # covariance reduces as n increase
-        #         self.amcl_cnt += 1
-        #         if self.amcl_cnt > self.amcl_cnt_max:
-        #             rospy.loginfo("%s: Kidnap! val: %.2f", self.name, amcl_sum)
-        #             global_loc_service_ns = rospy.get_param(rospy.get_name() + '/global_loc_srv')
-        #             self.global_loc_service = rospy.ServiceProxy(global_loc_service_ns, Empty)
-        #             self.global_loc_req = self.global_loc_service()
-        #             self.prev_amcl_sum = 100
-
-        #             amcl_pose = pt.Blackboard().set("retry", True)
-        #             self.move_base_ac.cancel_all_goals()
-        #             return pt.common.Status.FAILURE
-        #     elif is_decreasing:
-        #         self.amcl_cnt = 0
-        # else:
-        #     amcl_sum = 100
-
         # if success:
         if not self.tried:
             self.move_base_ac.send_goal(self.goal)
+            self.move_base_ac.wait_for_result(rospy.Duration(100.0))
             self.tried = True
 
-        if self.move_base_ac.get_result():
+        if self.move_base_ac.get_result() and self.move_base_ac.get_state() == 3:
             rospy.loginfo("%s: Success!", self.name)
             return pt.common.Status.SUCCESS
 
@@ -145,7 +119,7 @@ class GoTo(pt.behaviour.Behaviour):
 
 
     def initialise(self):
-        
+        rospy.loginfo("Initialising %s behaviour.", self.name)
         target_pose = pt.Blackboard().get(self.target_name+"_pose")
         use_table_pose = pt.Blackboard().get("get_table_pose")
         if use_table_pose and self.target_name != "pick":
@@ -163,7 +137,8 @@ class GoTo(pt.behaviour.Behaviour):
 
 
     def terminate(self, new_status):
-        rospy.loginfo("Initialising %s behaviour.", self.name)
+        rospy.loginfo("Terminating %s behaviour.", self.name)
+        rospy.loginfo("Result: %s", self.move_base_ac.get_state())
         self.move_base_ac.cancel_all_goals()
         return super().terminate(new_status)
 
@@ -423,10 +398,10 @@ class CheckAruco(pt.behaviour.Behaviour):
             pt.Blackboard().set("retry", True)
             # tell the tree that you're running
             rospy.loginfo("%s: Failed!", self.name)
-            return pt.common.Status.SUCCESS
-        else:
-            # rospy.loginfo("%s: Success!", self.name)
             return pt.common.Status.FAILURE
+        else:
+            rospy.loginfo("%s: Success!", self.name)
+            return pt.common.Status.SUCCESS
 
 
     def initialise(self):
@@ -590,6 +565,28 @@ class ClearCostmap(pt.behaviour.Behaviour):
         return super().initialise()
 
 
+class SetKidnap(pt.behaviour.Behaviour):
+
+    """
+    Clear both local and global cost map.
+    Returns running whilst awaiting the result,
+    success if the action was successful, and v.v..
+    """
+
+    def __init__(self, bool):
+
+        self.name = "Kidnap"
+        self.bool = bool
+
+        # become a behaviour
+        super(SetKidnap, self).__init__(self.name)
+
+
+    def update(self):
+        pt.Blackboard().set("kidnap", self.bool)
+        return pt.common.Status.SUCCESS
+
+
 class SetRetry(pt.behaviour.Behaviour):
 
     """
@@ -598,9 +595,10 @@ class SetRetry(pt.behaviour.Behaviour):
     success if the action was successful, and v.v..
     """
 
-    def __init__(self):
+    def __init__(self, bool):
 
         self.name = "Retry"
+        self.bool = bool
         # self.pub = rospy.Publisher(name="/retry", data_class=Bool, queue_size=1)
         # self.msg = Bool()
         # self.msg.data = True
@@ -610,7 +608,7 @@ class SetRetry(pt.behaviour.Behaviour):
 
 
     def update(self):
-        pt.Blackboard().set("retry", True)
+        pt.Blackboard().set("retry", self.bool)
         # self.pub.publish(self.msg)
         return pt.common.Status.SUCCESS
 

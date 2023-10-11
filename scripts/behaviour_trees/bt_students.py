@@ -157,7 +157,7 @@ def TaskA():
     pt.Blackboard().set(name="kidnap", value=True)
     pt.Blackboard().set(name="vel_pub_rate", value=10)
     pt.Blackboard().set(name="get_table_pose", value=False)
-    pt.Blackboard().set(name="table_name", value="table_3_clone")
+    pt.Blackboard().set(name="table_name", value="table_3")
     pt.Blackboard().set(name="aruco_cube_counter", value=0)
 
     joints_to_bb = pt.meta.success_is_running(ptr.subscribers.ToBlackboard)(name="joint_states",
@@ -215,7 +215,9 @@ def TaskA():
 
     tasks = pt.composites.Sequence(name="Tasks")
     
-    preempt = pt.composites.Selector(name="Preempt?")
+    pick_preempt = pt.composites.Selector(name="Pickup task preempt?")
+
+    place_preempt = pt.composites.Selector(name="Place task preempt?")
 
     initial_tasks = pt.composites.Sequence(name="Initialise")
 
@@ -224,6 +226,8 @@ def TaskA():
     pick_tasks = pt.composites.Sequence(name="Pick tasks")
 
     place_tasks = pt.composites.Sequence(name="Place tasks")
+
+    place_fallback = pt.composites.Selector(name="Place aruco fallback")
 
     final_check = pt.composites.Sequence(name="Final check")
 
@@ -259,7 +263,7 @@ def TaskA():
 
     is_placed = pt.composites.Selector(
         name="Find aruco cube fallback",
-        children=[LookForAruco(), SetRetry()]
+        children=[LookForAruco(), SetRetry(True)]
     )
 
     clean_pose = CleanArucoPose()
@@ -274,7 +278,7 @@ def TaskA():
 
     move_to_place = GoTo("place")
 
-    check_aruco = CheckAruco()
+    check_aruco = pt.meta.inverter(CheckAruco)()
 
     arm_place = MoveRobotArm("place")
 
@@ -292,7 +296,7 @@ def TaskA():
         name="Kidnapped?", variable_name='kidnap', expected_value=False
     )
 
-    retry = SetRetry()
+    retry = SetRetry(True)
 
     # kidnap detection behaviours
 
@@ -305,17 +309,21 @@ def TaskA():
 
     detect_kidnap = DetectKidnap()
 
+    set_kidnap = SetKidnap(False)
+
     # build behaviour tree
 
     root.add_children([topics2bb, tasks])
     tasks.add_children([initial_tasks, parallel_tasks])
     parallel_tasks.add_children([detect_kidnap, repeat_tasks])
     topics2bb.add_children([retry_to_bb, scan_to_bb, pick_pose_to_bb, place_pose_to_bb, robot_pose_to_bb, aruco_to_bb, joints_to_bb])
-    repeat_tasks.add_children([exit_fallback, preempt])
-    preempt.add_children([is_kidnapped_fallback, pick_and_place_tasks])
-    initial_tasks.add_children([localize, clear_costmap, reverse, tuck_arm])
-    pick_tasks.add_children([move_to_pickup, head_down, clean_pose, find_aruco, arm_pickup, pause])
-    place_tasks.add_children([move_to_place, check_aruco, arm_place, pause])
+    repeat_tasks.add_children([exit_fallback, pick_and_place_tasks])
+    pick_preempt.add_children([is_kidnapped_fallback, move_to_pickup])
+    place_preempt.add_children([is_kidnapped_fallback, move_to_place])
+    initial_tasks.add_children([localize, clear_costmap])
+    pick_tasks.add_children([reverse, tuck_arm, set_kidnap, pick_preempt, head_down, clean_pose, find_aruco, arm_pickup, pause])
+    place_tasks.add_children([set_kidnap, place_preempt, place_fallback, pause])
+    place_fallback.add_children([check_aruco, arm_place])
     final_check.add_children([clean_pose_cp, pause, is_placed])
     pick_and_place_tasks.add_children([reset_robot, pick_tasks, place_tasks, final_check])
     exit_fallback.add_children([is_retrying, exit_program])
