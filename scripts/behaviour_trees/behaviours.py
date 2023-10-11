@@ -575,7 +575,7 @@ class SetKidnap(pt.behaviour.Behaviour):
 
     def __init__(self, bool):
 
-        self.name = "Kidnap"
+        self.name = "et kidnap"
         self.bool = bool
 
         # become a behaviour
