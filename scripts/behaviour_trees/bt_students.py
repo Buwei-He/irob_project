@@ -217,9 +217,13 @@ def TaskA():
 
     place_preempt = pt.composites.Selector(name="Place task preempt?")
 
-    pick_parallel = pt.composites.Parallel("Pick parallel", policy=pt.common.ParallelPolicy.SUCCESS_ON_ONE)
+    # pick_parallel = pt.composites.Parallel("Pick parallel", policy=pt.common.ParallelPolicy.SUCCESS_ON_ONE)
 
-    place_parallel = pt.composites.Parallel("Place parallel", policy=pt.common.ParallelPolicy.SUCCESS_ON_ONE)
+    # place_parallel = pt.composites.Parallel("Place parallel", policy=pt.common.ParallelPolicy.SUCCESS_ON_ONE)
+
+    pick_parallel = pt.composites.Selector("Pick parallel")
+
+    place_parallel = pt.composites.Selector("Place parallel")
 
     initial_tasks = pt.composites.Sequence(name="Initialise")
 
@@ -247,11 +251,7 @@ def TaskA():
 
     reverse = Go("Reverse", linear=-0.1, angular=0, max_ticks=30)
 
-    localize = Relocalise(linear=0, angular=0.5, max_ticks=240)
-
     # pick and place behaviours
-
-    move_to_pickup = GoTo("pick")
 
     head_down = pt.composites.Sequence(
         name="Lower robot head",               
@@ -268,21 +268,7 @@ def TaskA():
         children=[LookForAruco(), SetRetry(True)]
     )
 
-    clean_pose = CleanArucoPose()
-
-    clean_pose_cp = CleanArucoPose()
-
-    clear_costmap = ClearCostmap()
-
-    clear_costmap_cp = ClearCostmap()
-
-    arm_pickup = MoveRobotArm("pick")
-
-    move_to_place = GoTo("place")
-
     check_aruco = pt.meta.inverter(CheckAruco)()
-
-    arm_place = MoveRobotArm("place")
 
     # task status control behaviours
 
@@ -302,20 +288,18 @@ def TaskA():
 
     # kidnap detection behaviours
 
-    localize_cp = Relocalise(linear=0, angular=0.5, max_ticks=240)
-
     is_kidnapped_fallback = pt.meta.inverter(pt.composites.Selector)(
         name="Detect kidnap fallback",
         children=[
             pt.blackboard.CheckBlackboardVariable(name="Kidnapped?", variable_name='kidnap', expected_value=False),
-            Relocalise(linear=0, angular=0.5, max_ticks=240), ClearCostmap()]
+            pt.meta.inverter(Relocalise)(), ClearCostmap()]
     )
 
     is_kidnapped_fallback_cp = pt.meta.inverter(pt.composites.Selector)(
         name="Detect kidnap fallback",
         children=[
             pt.blackboard.CheckBlackboardVariable(name="Kidnapped?", variable_name='kidnap', expected_value=False),
-            Relocalise(linear=0, angular=0.5, max_ticks=240), ClearCostmap()]
+            pt.meta.inverter(Relocalise)(), ClearCostmap()]
     )
 
     detect_kidnap = DetectKidnap()
@@ -326,17 +310,17 @@ def TaskA():
 
     root.add_children([topics2bb, tasks])
     tasks.add_children([initial_tasks, repeat_tasks])
-    pick_parallel.add_children([detect_kidnap, pick_preempt])
-    place_parallel.add_children([detect_kidnap, place_preempt])
+    pick_parallel.add_children([DetectKidnap(), pick_preempt])
+    place_parallel.add_children([DetectKidnap(), place_preempt])
     topics2bb.add_children([retry_to_bb, scan_to_bb, pick_pose_to_bb, place_pose_to_bb, robot_pose_to_bb, aruco_to_bb, joints_to_bb])
     repeat_tasks.add_children([exit_fallback, pick_and_place_tasks])
-    pick_preempt.add_children([is_kidnapped_fallback, move_to_pickup])
-    place_preempt.add_children([is_kidnapped_fallback_cp, move_to_place])
-    initial_tasks.add_children([localize, clear_costmap])
-    pick_tasks.add_children([reverse, tuck_arm, set_kidnap, pick_parallel, head_down, clean_pose, find_aruco, arm_pickup, pause])
-    place_tasks.add_children([set_kidnap, place_parallel, place_fallback, pause])
-    place_fallback.add_children([check_aruco, arm_place])
-    final_check.add_children([clean_pose_cp, pause, is_placed])
+    pick_preempt.add_children([is_kidnapped_fallback, GoTo("pick")])
+    place_preempt.add_children([is_kidnapped_fallback_cp, GoTo("place")])
+    initial_tasks.add_children([Relocalise(), ClearCostmap()])
+    pick_tasks.add_children([reverse, tuck_arm, set_kidnap, pick_parallel, head_down, CleanArucoPose(), find_aruco, MoveRobotArm("pick")])
+    place_tasks.add_children([set_kidnap, place_parallel, place_fallback])
+    place_fallback.add_children([check_aruco, MoveRobotArm("place")])
+    final_check.add_children([CleanArucoPose(), pt.timers.Timer("Pause", 1.0), is_placed])
     pick_and_place_tasks.add_children([reset_robot, pick_tasks, place_tasks, final_check])
     exit_fallback.add_children([is_retrying, exit_program])
 

@@ -107,7 +107,7 @@ class GoTo(pt.behaviour.Behaviour):
         # if success:
         if not self.tried:
             self.move_base_ac.send_goal(self.goal)
-            self.move_base_ac.wait_for_result(rospy.Duration(100.0))
+            # self.move_base_ac.wait_for_result(rospy.Duration(100.0))
             self.tried = True
 
         if self.move_base_ac.get_result():
@@ -419,7 +419,7 @@ class Relocalise(pt.behaviour.Behaviour):
     Returns running and commands a velocity indefinitely.
     """
 
-    def __init__(self, linear, angular, max_ticks):
+    def __init__(self, linear=0, angular=0.6, max_ticks=400):
 
         self.name = "Relocalise"
         
@@ -439,15 +439,18 @@ class Relocalise(pt.behaviour.Behaviour):
 
 
     def update(self):
+        
+        is_converged = False
+        # rospy.loginfo("%s, %s", self.ticks, not is_converged)
+        
+        while self.ticks < self.max_ticks and not is_converged:
+            amcl_pose = pt.Blackboard().get("robot_pose")
+            if amcl_pose is not None:
+                amcl_cov = amcl_pose.pose.covariance
+                is_converged = np.sum(np.abs(amcl_cov)) < self.max_cov
+            else: 
+                is_converged = False
 
-        amcl_pose = pt.Blackboard().get("robot_pose")
-        if amcl_pose is not None:
-            amcl_cov = amcl_pose.pose.covariance
-            is_converged = np.sum(np.abs(amcl_cov)) < self.max_cov
-        else: 
-            is_converged = False
-
-        if self.ticks < self.max_ticks and not is_converged:
            # send the message 
             self.cmd_vel_pub.publish(self.move_msg)
             rate = pt.Blackboard().get("vel_pub_rate")
@@ -455,9 +458,10 @@ class Relocalise(pt.behaviour.Behaviour):
             rospy.Rate(rate).sleep()
 
             # tell the tree that you're running
-            return pt.common.Status.RUNNING
-        else:
-            return pt.common.Status.SUCCESS
+            rospy.loginfo("running.")
+            
+        rospy.loginfo("success.")
+        return pt.common.Status.SUCCESS
 
         
     def initialise(self):
@@ -472,7 +476,7 @@ class Relocalise(pt.behaviour.Behaviour):
 
         global_loc_service_ns = rospy.get_param(rospy.get_name() + '/global_loc_srv')
         self.global_loc_service = rospy.ServiceProxy(global_loc_service_ns, Empty)
-        rospy.wait_for_service(global_loc_service_ns, timeout=1)
+        rospy.wait_for_service(global_loc_service_ns, timeout=30)
 
         self.global_loc_req = self.global_loc_service()
 
@@ -524,7 +528,7 @@ class ResetRobot(pt.behaviour.Behaviour):
         # server
         mv_head_srv_nm = rospy.get_param(rospy.get_name() + '/move_head_srv')
         self.move_head_srv = rospy.ServiceProxy(mv_head_srv_nm, MoveHead)
-        rospy.wait_for_service(mv_head_srv_nm, timeout=1)
+        rospy.wait_for_service(mv_head_srv_nm, timeout=30)
 
         self.move_head_req = self.move_head_srv("up")
         
@@ -547,7 +551,7 @@ class ClearCostmap(pt.behaviour.Behaviour):
         self.name = "Clear costmap"
         clear_costmap_service_ns = '/move_base/clear_costmaps'
         self.clear_costmap_service = rospy.ServiceProxy(clear_costmap_service_ns, Empty)
-        rospy.wait_for_service(clear_costmap_service_ns, timeout=1)
+        rospy.wait_for_service(clear_costmap_service_ns, timeout=30)
 
         # become a behaviour
         super(ClearCostmap, self).__init__(self.name)
@@ -641,16 +645,17 @@ class DetectKidnap(pt.behaviour.Behaviour):
         curr_pose = pt.Blackboard().get("robot_pose")
 
         # rate 10hz
-        if self.tick_counter % 10 == 0:
-            if self.prev_scan is not None and curr_scan is not None\
-                and self.prev_pose is not None and curr_pose is not None:
-                prev_yaw = self.get_yaw(self.prev_pose.pose.pose.orientation)
-                curr_yaw = self.get_yaw(curr_pose.pose.pose.orientation)
-                diff_yaw = (curr_yaw - prev_yaw) % (2*np.pi)
+        # if self.tick_counter % 10 == 0:
+        if True:
+            # rospy.loginfo("%s, %s", self.prev_scan is not None, curr_scan is not None)
+            if self.prev_scan is not None and curr_scan is not None:
+                # and self.prev_pose is not None and curr_pose is not None:
+                # prev_yaw = self.get_yaw(self.prev_pose.pose.pose.orientation)
+                # curr_yaw = self.get_yaw(curr_pose.pose.pose.orientation)
+                # diff_yaw = (curr_yaw - prev_yaw) % (2*np.pi)
 
-                prev_seq = self.prev_scan.header.seq
-                curr_seq = curr_scan.header.seq
-                diff_seq = curr_seq - prev_seq
+                diff_seq = curr_scan.header.seq - self.prev_scan.header.seq
+
                 # diff_yaw_cnt = round(diff_yaw / curr_scan.angle_increment)
 
                 # check length to make sure overlapping part exists; or skip (rotate speed too fast)
@@ -674,26 +679,26 @@ class DetectKidnap(pt.behaviour.Behaviour):
                 prev_ranges = np.clip(prev_ranges, self.prev_scan.range_min, self.prev_scan.range_max)
                 curr_ranges = np.clip(curr_ranges, curr_scan.range_min, curr_scan.range_max)
                 
-
                 # calculate cross-correlation of 2 scans
                 correlation = np.correlate(curr_ranges, prev_ranges)[0] / (np.linalg.norm(curr_ranges) * np.linalg.norm(prev_ranges))
-                # if correlation < 0.999:
-                # rospy.loginfo("corr: %.3f", correlation)
+                if correlation < 0.999:
+                    rospy.loginfo("corr: %.3f", correlation)
                 # rospy.loginfo("diff: %.3f", diff_yaw)
-                if diff_yaw > 1e-6 and correlation < 0.85:
+                if correlation < 0.85 and diff_seq < 20:
                     rospy.loginfo("Kidnap?")
                     pt.Blackboard().set("kidnap", True)
 
             self.prev_pose = curr_pose
             self.prev_scan = curr_scan
         self.tick_counter += 1
-        return pt.common.Status.RUNNING
+        return pt.common.Status.FAILURE
 
 
     def initialise(self):
-        self.prev_scan = None
-        self.prev_pose = None
-        self.tick_counter = 0
+        # rospy.loginfo("Initialising %s behaviour.", self.name)
+        # self.prev_scan = None
+        # self.prev_pose = None
+        # self.tick_counter = 0
         return super().initialise()
     
 
