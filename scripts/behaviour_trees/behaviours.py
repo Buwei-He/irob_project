@@ -74,7 +74,7 @@ class Go(pt.behaviour.Behaviour):
         return super().terminate(new_status)
         
 
-class GoTo(pt.behaviour.Behaviour):
+class NavigateTo(pt.behaviour.Behaviour):
 
     """PoseStamped
     """
@@ -92,14 +92,10 @@ class GoTo(pt.behaviour.Behaviour):
 
         # personal goal setting
         self.goal = MoveBaseGoal()
-
         self.tried = False
-        # self.amcl_cnt = 0
-        # self.amcl_cnt_max = 10
-        # self.prev_amcl_sum = 100
 
         # become a behaviour
-        super(GoTo, self).__init__(self.name)
+        super(NavigateTo, self).__init__(self.name)
 
 
     def update(self):
@@ -138,7 +134,7 @@ class GoTo(pt.behaviour.Behaviour):
 
     def terminate(self, new_status):
         rospy.loginfo("Terminating %s behaviour.", self.name)
-        rospy.loginfo("Result: %s", self.move_base_ac.get_state())
+        rospy.loginfo("State: %s", self.move_base_ac.get_state())
         self.move_base_ac.cancel_all_goals()
         return super().terminate(new_status)
 
@@ -446,9 +442,6 @@ class Relocalise(pt.behaviour.Behaviour):
             rate = pt.Blackboard().get("vel_pub_rate")
             self.ticks += 1
             rospy.Rate(rate).sleep()
-
-            # tell the tree that you're running
-            # rospy.loginfo("running.")
             
         rospy.loginfo("%s: Success!", self.name)
         return pt.common.Status.SUCCESS
@@ -549,8 +542,8 @@ class ClearCostmap(pt.behaviour.Behaviour):
 
     def update(self):
         # clear costmap before planning
-        rospy.loginfo("Clear costmap!")
         self.clear_costmap_service()
+        rospy.loginfo("%s: Success!", self.name)
         return pt.common.Status.SUCCESS
     
     

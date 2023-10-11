@@ -97,7 +97,7 @@ def TaskC():
     reverse = Go("Reverse", linear=-0.1, angular=0, max_ticks=30)
 
     # move to chair
-    move_to_pickup = GoTo("pick")
+    move_to_pickup = NavigateTo("pick")
 
     # lower head
     
@@ -122,7 +122,7 @@ def TaskC():
 
     arm_pickup = MoveRobotArm("pick")
 
-    move_to_place = GoTo("place")
+    move_to_place = NavigateTo("place")
 
     arm_place = MoveRobotArm("place")
 
@@ -236,7 +236,7 @@ def TaskA():
 
     # initialise behaviours
 
-    reverse = Go("Reverse", linear=-0.1, angular=0, max_ticks=30)
+    reverse = Go("Reverse", linear=-0.2, angular=0, max_ticks=15)
 
     # pick and place behaviours
 
@@ -291,9 +291,9 @@ def TaskA():
     place_selector.add_children([DetectKidnap(), place_preempt])
     topics2bb.add_children([scan_to_bb, pick_pose_to_bb, place_pose_to_bb, robot_pose_to_bb, aruco_to_bb, joints_to_bb])
     repeat_tasks.add_children([exit_fallback, pick_and_place_tasks])
-    pick_preempt.add_children([is_kidnapped_fallback, GoTo("pick")])
-    place_preempt.add_children([is_kidnapped_fallback_cp, GoTo("place")])
-    initial_tasks.add_children([is_initialising, Relocalise(), ClearCostmap(), pt.blackboard.SetBlackboardVariable("initialise", False)])
+    pick_preempt.add_children([is_kidnapped_fallback, NavigateTo("pick")])
+    place_preempt.add_children([is_kidnapped_fallback_cp, NavigateTo("place")])
+    initial_tasks.add_children([is_initialising, Relocalise(), ClearCostmap(), pt.blackboard.SetBlackboardVariable("Set initialise", "initialise", False)])
     pick_tasks.add_children([reverse, TuckArm(), SetKidnap(False), pick_selector, head_down, CleanArucoPose(), find_aruco, MoveRobotArm("pick")])
     place_tasks.add_children([SetKidnap(False), place_selector, place_fallback])
     place_fallback.add_children([check_aruco, MoveRobotArm("place")])
