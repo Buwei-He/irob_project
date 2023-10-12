@@ -184,6 +184,7 @@ class TuckArm(pt.behaviour.Behaviour):
         elif self.play_motion_ac.get_result():
             # than I'm finished!
             self.finished = True
+            # self.play_motion_ac.cancel_goal()
             return pt.common.Status.SUCCESS
         # # if failed
         # elif not self.play_motion_ac.get_result():
@@ -199,7 +200,6 @@ class TuckArm(pt.behaviour.Behaviour):
         return super().initialise()
     
     def terminate(self, new_status):
-        self.play_motion_ac.cancel_all_goals()
         return super().terminate(new_status)
 
 
