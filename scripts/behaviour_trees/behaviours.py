@@ -86,7 +86,7 @@ class NavigateTo(pt.behaviour.Behaviour):
 
         # setup action client
         self.move_base_ac = SimpleActionClient("/move_base", MoveBaseAction)
-        if not self.move_base_ac.wait_for_server(rospy.Duration(1000)):
+        if not self.move_base_ac.wait_for_server(rospy.Duration(30)):
             rospy.logerr("Could not connect to move_base action server.")
             exit()
 
@@ -108,7 +108,17 @@ class NavigateTo(pt.behaviour.Behaviour):
 
         if self.move_base_ac.get_result():
             rospy.loginfo("%s: Success!", self.name)
-            return pt.common.Status.SUCCESS
+            self.state = self.move_base_ac.get_state()
+            rospy.loginfo("State: %s", self.state)
+            if self.state == 3:
+                return pt.common.Status.SUCCESS
+            else:
+                self.initialise()
+                clear_costmap_service_ns = '/move_base/clear_costmaps'
+                clear_costmap_service = rospy.ServiceProxy(clear_costmap_service_ns, Empty)
+                rospy.wait_for_service(clear_costmap_service_ns, timeout=30)
+                clear_costmap_service()
+                return pt.common.Status.RUNNING
 
         else:
             return pt.common.Status.RUNNING
@@ -134,7 +144,6 @@ class NavigateTo(pt.behaviour.Behaviour):
 
     def terminate(self, new_status):
         rospy.loginfo("Terminating %s behaviour.", self.name)
-        rospy.loginfo("State: %s", self.move_base_ac.get_state())
         self.move_base_ac.cancel_all_goals()
         return super().terminate(new_status)
 
@@ -146,7 +155,7 @@ class TuckArm(pt.behaviour.Behaviour):
     success if the action was succesful, and v.v..
     """
     def __init__(self):
-        rospy.loginfo("Initialising tuck arm behaviour.")
+        self.name = "Tuck arm"
         # Set up action client
         self.play_motion_ac = SimpleActionClient("/play_motion", PlayMotionAction)
         # personal goal setting
@@ -157,7 +166,7 @@ class TuckArm(pt.behaviour.Behaviour):
         self.sent_goal = False
         self.finished = False
         # become a behaviour
-        super(TuckArm, self).__init__("Tuck arm!")
+        super(TuckArm, self).__init__(self.name)
         
     def update(self):
         # already tucked the arm
@@ -184,9 +193,14 @@ class TuckArm(pt.behaviour.Behaviour):
             return pt.common.Status.RUNNING
         
     def initialise(self):
+        rospy.loginfo("Initialising %s behaviour.", self.name)
         self.finished = False
         self.sent_goal = False
         return super().initialise()
+    
+    def terminate(self, new_status):
+        self.play_motion_ac.cancel_all_goals()
+        return super().terminate(new_status)
 
 
 class MoveRobotHead(pt.behaviour.Behaviour):
@@ -491,11 +505,7 @@ class ResetRobot(pt.behaviour.Behaviour):
 
 
     def update(self):
-        if self.move_head_req.success:
-            rospy.loginfo("%s: Success!", self.name)
-            return pt.common.Status.SUCCESS
-        else: 
-            return pt.common.Status.RUNNING
+        return pt.common.Status.SUCCESS
 
 
     def initialise(self):
@@ -507,13 +517,6 @@ class ResetRobot(pt.behaviour.Behaviour):
 
         # reset aruco cube
         ResetAruco()
-
-        # server
-        mv_head_srv_nm = rospy.get_param(rospy.get_name() + '/move_head_srv')
-        self.move_head_srv = rospy.ServiceProxy(mv_head_srv_nm, MoveHead)
-        rospy.wait_for_service(mv_head_srv_nm, timeout=30)
-
-        self.move_head_req = self.move_head_srv("up")
         
         return super().initialise()
     
@@ -562,7 +565,7 @@ class SetKidnap(pt.behaviour.Behaviour):
 
     def __init__(self, bool):
 
-        self.name = "et kidnap"
+        self.name = "Set kidnap"
         self.bool = bool
 
         # become a behaviour

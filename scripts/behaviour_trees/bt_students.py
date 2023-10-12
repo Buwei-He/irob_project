@@ -204,7 +204,7 @@ def TaskA():
 
     repeat_tasks = pt.composites.Sequence(name="Repeat tasks")
 
-    tasks = pt.composites.Sequence(name="Tasks")
+    tasks = pt.composites.Selector(name="Tasks")
     
     pick_preempt = pt.composites.Selector(name="Pickup task preempt?")
 
@@ -232,17 +232,15 @@ def TaskA():
 
     reset_robot = ResetRobot()
 
-    pause = pt.timers.Timer("Pause", duration=3.0)
-
     # initialise behaviours
 
-    reverse = Go("Reverse", linear=-0.2, angular=0, max_ticks=15)
+    reverse = Go("Reverse", linear=0, angular=0.6, max_ticks=50)
 
     # pick and place behaviours
 
     head_down = pt.composites.Sequence(
         name="Lower robot head",               
-        children=[MoveRobotHead("down"), pause]
+        children=[MoveRobotHead("down"), pt.timers.Timer("Pause", duration=2.0)]
     )
 
     find_aruco = pt.composites.Selector(
@@ -269,18 +267,27 @@ def TaskA():
 
     # kidnap detection behaviours
 
+    recovery_sequence = pt.composites.Sequence(name="Recovery Sequence 1",
+                                               children=[MoveRobotHead("up"), Relocalise(), ClearCostmap(), MoveRobotHead("down"), pt.timers.Timer("Pause", 1.0)])
+    
+    recovery_sequence2 = pt.composites.Sequence(name="Recovery Sequence 2",
+                                               children=[MoveRobotHead("up"), Relocalise(), ClearCostmap(), MoveRobotHead("down"), pt.timers.Timer("Pause", 1.0)])
+    
+    recovery_sequence3 = pt.composites.Sequence(name="Recovery Sequence 3",
+                                               children=[MoveRobotHead("up"), Relocalise(), ClearCostmap(), MoveRobotHead("down"), pt.timers.Timer("Pause", 1.0)])
+
     is_kidnapped_fallback = pt.meta.inverter(pt.composites.Selector)(
         name="Detect kidnap fallback",
         children=[
             pt.blackboard.CheckBlackboardVariable(name="Kidnapped?", variable_name='kidnap', expected_value=False),
-            pt.meta.inverter(Relocalise)(), ClearCostmap()]
+            recovery_sequence2]
     )
 
     is_kidnapped_fallback_cp = pt.meta.inverter(pt.composites.Selector)(
         name="Detect kidnap fallback",
         children=[
             pt.blackboard.CheckBlackboardVariable(name="Kidnapped?", variable_name='kidnap', expected_value=False),
-            pt.meta.inverter(Relocalise)(), ClearCostmap()]
+            recovery_sequence3]
     )
 
     # build behaviour tree
@@ -293,11 +300,12 @@ def TaskA():
     repeat_tasks.add_children([exit_fallback, pick_and_place_tasks])
     pick_preempt.add_children([is_kidnapped_fallback, NavigateTo("pick")])
     place_preempt.add_children([is_kidnapped_fallback_cp, NavigateTo("place")])
-    initial_tasks.add_children([is_initialising, Relocalise(), ClearCostmap(), pt.blackboard.SetBlackboardVariable("Set initialise", "initialise", False)])
-    pick_tasks.add_children([reverse, TuckArm(), SetKidnap(False), pick_selector, head_down, CleanArucoPose(), find_aruco, MoveRobotArm("pick")])
+    initial_tasks.add_children([is_initialising, recovery_sequence, 
+                                pt.blackboard.SetBlackboardVariable("Set initialise", "initialise", False)])
+    pick_tasks.add_children([reverse, TuckArm(), SetKidnap(False), pick_selector, head_down, CleanArucoPose(), find_aruco, MoveRobotArm("pick"), pt.timers.Timer("Pause", 1.0)])
     place_tasks.add_children([SetKidnap(False), place_selector, place_fallback])
     place_fallback.add_children([check_aruco, MoveRobotArm("place")])
-    final_check.add_children([pt.timers.Timer("Pause", 1.0), CleanArucoPose(), pt.timers.Timer("Pause", 1.0), is_placed])
+    final_check.add_children([CleanArucoPose(), pt.timers.Timer("Pause", 1.0), is_placed])
     pick_and_place_tasks.add_children([reset_robot, pick_tasks, place_tasks, final_check])
     exit_fallback.add_children([is_retrying, exit_program])
 
